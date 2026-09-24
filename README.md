@@ -1,0 +1,315 @@
+# pypasi
+
+**Process-aware signal inference.** Classify 1-D signals by negotiated consensus
+among band-level models, then audit *how* the decision was reached: which regions
+of the signal disagreed, how long they held out, and what the raw data looks like
+there.
+
+Conventional classifiers report a label and a probability. Neither tells you
+whether the prediction came from agreement across the signal or from the forced
+reconciliation of contradictory regions. `pypasi` partitions a signal into
+contiguous bands, gives each its own classifier, and lets those band agents
+negotiate over an interaction graph. The trajectory they take is measurable, and
+it is attributable back to specific regions of the spectrum.
+
+---
+
+## Install
+
+```bash
+pip install -e .            # from a checkout
+pip install -e ".[viz]"     # adds matplotlib helpers
+```
+
+Requires Python 3.10+, NumPy, SciPy, pandas and scikit-learn.
+
+## Sixty seconds
+
+```bash
+pypasi demo --out results/demo --axis-name "cm-1"
+```
+
+Generates synthetic signals with conflict planted at a known position, fits the
+model, compares all three regulatory regimes, and writes the band-conflict table
+plus self-contained HTML reports.
+
+In Python:
+
+```python
+from pypasi import BandNegotiationClassifier
+from pypasi.datasets import make_conflict_signals
+
+X, y, axis, spec = make_conflict_signals(n_samples=600, random_state=0)
+
+clf = BandNegotiationClassifier(axis=axis, n_bands=7, axis_name="cm-1",
+                                regime="H1", random_state=0).fit(X, y)
+
+audit = clf.audit(X, y)
+print(audit.conflict_table())        # which bands disagreed, and how much
+print(audit.top_conflict_bands(3))   # ['B4', 'B2', 'B3']
+
+trace = audit.trace_band("B4")       # the raw signal behind the worst band
+audit.report("audit.html", sample=0) # interactive, self-contained
+```
+
+## What it does
+
+### Bands
+
+```python
+from pypasi import BandSet
+
+BandSet.equal_width(axis, 7, lo=400, hi=1800)      # uniform partition
+BandSet.peak_informed(axis, X, 7)                  # boundaries in the troughs
+BandSet.from_edges(axis, [400, 700, 1100, 1800])   # explicit
+```
+
+`peak_informed` places boundaries between the strongest peaks so that prominent
+features are not split across two agents.
+
+### Any scikit-learn classifier, including chemometric ones
+
+```python
+from pypasi import PLSDA, PCALDA
+from sklearn.ensemble import RandomForestClassifier
+
+BandNegotiationClassifier(axis=axis, base_estimator=PLSDA(n_components=8))
+BandNegotiationClassifier(axis=axis, base_estimator=RandomForestClassifier())
+```
+
+scikit-learn ships the regression half of PLS but no discriminant wrapper, so
+`pypasi` provides the two classifiers vibrational spectroscopy actually uses:
+
+| Classifier | Why it is here |
+| --- | --- |
+| `PLSDA` | The workhorse of Raman and IR. Copes with far more variables than samples and with heavy collinearity. Exposes `vip_scores_`. |
+| `PCALDA` | PCA then LDA - the standard route when spectra are wider than they are tall and LDA cannot be fitted directly. |
+
+Both are ordinary estimators and both pass `check_estimator` in full. For the
+rest, reach for scikit-learn directly: shrinkage LDA
+(`LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto")`) is well suited to
+small classes, and elastic-net logistic regression and a linear SVM both work
+well on normalised spectra.
+
+**VIP scores.** `PLSDA.vip_scores_` gives Variable Importance in Projection per
+wavenumber, the conventional measure of where a spectral model finds its
+information, with 1.0 as the usual cut-off.
+
+Band agents exchange logits, and getting those out of an arbitrary estimator is
+less obvious than it looks. Random forests and naive Bayes have no
+`decision_function`, so `pypasi` falls back to `log(predict_proba)`. Binary
+`decision_function` returns one number, and the natural-looking `[-d, +d]`
+*doubles* the scale of a proper two-class logit vector, inflating every
+divergence and breaking any threshold tuned elsewhere; `pypasi` uses `[0, d]`,
+which reproduces the model's own probabilities exactly.
+
+### Interaction topology
+
+The published method couples each band to its immediate neighbours. That cannot
+express coupling between distant regions sharing a biochemical origin.
+
+```python
+from pypasi import Topology
+
+Topology.chain(7)                                       # published default
+Topology.complete(7)                                    # all-to-all
+Topology.knn(7, k=2)                                    # two bands either side
+Topology.radius(bands.centers, 300, decay=True)         # distance-weighted
+Topology.from_edges(7, [(0, 6)], include_chain=True)    # chain plus long-range
+```
+
+Topology governs what an audit can see. A discordant band flanked by
+uninformative neighbours has nothing to disagree with and stays invisible under
+a chain; under a complete graph it does not.
+
+### Regimes and gates
+
+| Regime | Behaviour |
+| --- | --- |
+| `plain` | Unregulated diffusion toward the neighbourhood consensus |
+| `H1` | Persistently discordant bands are silenced |
+| `H2` | Suppression, plus reinforcement of coherent bands |
+
+A **gate** decides what counts as discordant:
+
+```python
+from pypasi import QuantileGate, AbsoluteGate, RankGate
+
+QuantileGate(q=0.975)    # threshold from clean training stress (default)
+AbsoluteGate(tau=0.05)   # fixed threshold
+RankGate(fraction=0.25)  # mute each signal's noisiest quarter
+```
+
+`QuantileGate` is the default because stress is a divergence between softmax
+distributions: its scale depends on the number of classes and the sharpness of
+the base learner, so a threshold tuned on one dataset rarely transfers to
+another. Calibrating against the clean stress distribution makes the gate
+comparable across problems.
+
+Every gate takes `protect_min`, the number of least-discordant bands that can
+never be silenced. It defaults to 1: if every band were silenced the weight
+vector would be all zeros and the prediction would fall out of a tie-break rather
+than out of inference. `protect_min=0` restores the unguarded behaviour.
+
+### Geometry
+
+From the recorded trajectory:
+
+- **DG** — total reconciliation effort, the cumulative path length of all band
+  agents in mean-centred logit space, and decomposable per band.
+- **REDG** — the fraction of that effort spent in the opening iterations.
+- **eREDG** — REDG with trivially inactive trajectories masked out, so the ratio
+  is read only where there was real reconciliation to measure.
+
+### Auditing, and the way back to the raw signal
+
+```python
+audit = clf.audit(X, y)
+audit.summary()               # one row per signal
+audit.conflict_table()        # one row per band
+audit.trace_band("B4")        # raw spectra over exactly that interval
+audit.to_csv("results/run")
+audit.report("r.html", sample=12)
+```
+
+The conflict table separates two things that both raise stress and mean opposite
+things. An **uninformative** band contributes near-uniform evidence that
+disagrees with any confident consensus without contributing anything. A
+**confidently wrong** band contributes sharp evidence for the wrong class. Only
+the second is a real conflict. `band_confidence` distinguishes them and
+`informed_conflict` combines them; with ground truth available, `excess_stress`
+— conflict on wrong predictions minus conflict on right ones — is the decisive
+column.
+
+### Importance versus conflict
+
+```python
+importance, per_feature = clf.band_importance(X, y)   # PLS-DA VIP by default
+```
+
+Two different questions, and the pair is more informative than either alone.
+Importance says *where a classifier finds information*; conflict says *where
+inference runs into trouble*. A band high in both is informative but unstable -
+the first place to look when a prediction fails. A band high in importance and
+low in conflict is a dependable discriminant.
+
+`trace_band` closes the loop: it returns the raw signal over exactly the
+interval the table implicates, with per-class means, so a conflict score can be
+checked against the spectrum that produced it.
+
+### Comparing regimes
+
+```python
+from pypasi import compare_regimes
+audits = clf.compare_regimes(X, y)          # one fit, three negotiations
+print(compare_regimes(audits))
+```
+
+### Controlled perturbation
+
+```python
+from pypasi import perturb_bands
+damaged, frozen, affected = perturb_bands(band_logits, 0.4, "spike", random_state=0)
+```
+
+Modes: `noise`, `spike`, `silence` (also freezes the band), `swap` (gives a band
+another class's evidence). All corrupt the same number of bands at a matched
+fraction, so modes are directly comparable.
+
+## Figures
+
+```python
+from pypasi import viz
+
+viz.plot_bands(clf.bands_, X, y)                     # signal with the partition
+viz.plot_band_conflict(audit)                        # conflict per band
+viz.plot_importance_vs_conflict(audit, imp, perfeat) # the two questions together
+viz.plot_stress_map(audit.result, clf.bands_, i)     # one signal, band x iteration
+viz.plot_regime_comparison(table)                    # one panel per metric
+viz.plot_dg_curve(frame)                             # effort under corruption
+```
+
+Every function takes `dark=True` and returns the figure. The palette is
+colour-vision-deficiency validated: the categorical hues clear the all-pairs CVD
+and normal-vision separation floors in both modes, signed quantities get a
+diverging scale with a neutral zero, magnitudes get a single hue, and every
+multi-series figure carries direct labels so identity never rests on colour
+alone. Requires the `viz` extra.
+
+## Command line
+
+```bash
+pypasi demo --out results/demo
+pypasi run --x X.npy --y y.npy --axis axis.npy --out results/mine
+pypasi bacteria --data-dir path/to/bacteria-ID --out results/bacteria
+```
+
+Common options: `--n-bands`, `--band-method {equal_width,peak_informed}`,
+`--band-range LO HI`, `--topology {chain,complete,knn}`,
+`--regime {plain,H1,H2}`, `--max-iter`, `--n-reports`, `--seed`.
+
+## Data
+
+`pypasi.datasets.make_conflict_signals` plants informative peaks and
+*contradictory* ones at known positions and returns the mask of which signals
+were contaminated — ground truth an audit should recover, which is what this
+package's own tests check against.
+
+`pypasi.datasets.load_bacteria` reads the public Raman dataset of Ho et al.
+(2019) from a local directory. Nothing is downloaded automatically; get it from
+<https://github.com/csho33/bacteria-ID>.
+
+## Tests and conformance
+
+```bash
+pip install -e ".[dev,viz]"
+pytest
+```
+
+`BandNegotiationClassifier`, `PLSDA` and `PCALDA` are checked against
+scikit-learn's own `check_estimator` suite in the tests. The two chemometric
+classifiers pass every check. The negotiation classifier passes every check when
+`temperature=0`; with Metropolis acceptance switched on it deviates only on
+`check_methods_subset_invariance` and `check_methods_sample_order_invariance`,
+because a stochastic accept/reject step genuinely is not subset-invariant. Both
+facts are asserted by tests rather than described.
+
+## Benchmarks
+
+```bash
+python benchmarks/bench_vectorisation.py --out bench.csv --figure bench.png
+```
+
+The samples in a negotiation are independent, so the obvious implementation is a
+loop over signals. `pypasi` instead advances the whole cohort through each
+iteration at once. The benchmark measures the difference against a deliberately
+naive reference, and refuses to report a single timing until the two agree to
+floating point:
+
+| signals | per-sample loop | batched | speedup |
+| ---: | ---: | ---: | ---: |
+| 100 | 0.79 s | 0.034 s | 23x |
+| 500 | 3.99 s | 0.130 s | 31x |
+| 1000 | 8.07 s | 0.236 s | 34x |
+| 2500 | 20.27 s | 0.641 s | 32x |
+
+Measured on 7 bands, 5 classes, 30 iterations; your numbers will differ, the
+shape will not. Cost per signal is roughly flat for the loop and falls for the
+batched engine, which is what makes cohort-scale auditing practical.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs the suite on Python 3.10-3.13 on Linux plus one
+macOS and one Windows job, smoke-tests the CLI, lints with `ruff`, and builds and
+checks the distribution. It is inert until the project is pushed to GitHub.
+
+## Method
+
+The negotiation, the regimes and the Decision Geometry descriptors follow
+Kourkoumelis, *Process-aware inference of biomedical Raman spectra
+classification*. This package generalises that method beyond Raman spectroscopy
+and beyond nearest-neighbour coupling.
+
+## Licence
+
+MIT.
