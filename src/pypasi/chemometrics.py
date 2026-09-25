@@ -6,15 +6,6 @@ goes for PCA-LDA, which is ubiquitous in biospectroscopy because spectra are
 wide and short - thousands of wavenumbers, tens of samples - and LDA cannot be
 fitted directly in that regime.
 
-Both classes here are ordinary scikit-learn estimators, so they work as
-``base_estimator`` for :class:`~pypasi.estimator.BandNegotiationClassifier` and
-anywhere else.
-
-Both also expose ``feature_importances_``, which lets
-:meth:`~pypasi.estimator.BandNegotiationClassifier.band_importance` contrast
-where a model finds information against where inference runs into conflict -
-two different questions that are easily confused.
-"""
 
 from __future__ import annotations
 
