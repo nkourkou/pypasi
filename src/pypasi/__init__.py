@@ -16,6 +16,12 @@ BandNegotiationClassifier(...)
 >>> audit.top_conflict_bands(1)                      # doctest: +SKIP
 ['B4']
 >>> trace = audit.trace_band("B4")                   # raw signal behind the conflict
+
+Monitoring a new batch, without labels
+--------------------------------------
+>>> from pypasi import ControlProfile
+>>> profile = ControlProfile.fit(clf, X, n_batches=10)   # doctest: +SKIP
+>>> print(profile.check(X_new).summary())                # doctest: +SKIP
 """
 
 from .audit import AuditResult, BandTrace, band_importance, compare_regimes
@@ -32,12 +38,14 @@ from .geometry import (
     redg,
 )
 from .logits import to_logits
+from .monitor import ControlProfile, ControlReport
 from .negotiate import NegotiationResult, negotiate
 from .perturb import perturb_bands
 from .regimes import H1, H2, Plain, Regime
 from .topology import Topology
+from .triage import NoveltyDetector, Triage, compare_conflict_scores, risk_coverage
 
-__version__ = "0.2.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "__version__",
@@ -50,6 +58,8 @@ __all__ = [
     "BandSet",
     "BandTrace",
     "compare_regimes",
+    "ControlProfile",
+    "ControlReport",
     "decision_geometry",
     "early_decision_geometry",
     "eredg",
@@ -70,6 +80,10 @@ __all__ = [
     "Regime",
     "softmax",
     "to_logits",
+    "NoveltyDetector",
     "Topology",
+    "Triage",
+    "compare_conflict_scores",
+    "risk_coverage",
     "vip_scores",
 ]

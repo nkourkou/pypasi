@@ -8,6 +8,10 @@ Three entry points::
 
 Each writes the band-conflict table, a per-sample summary, a regime comparison
 and self-contained HTML reports into ``--out``.
+
+Add ``--monitor`` to any of them to learn control limits on the training cohort
+and chart the evaluation cohort against them without touching its labels - the
+workflow a laboratory runs when a new batch arrives.
 """
 
 from __future__ import annotations
@@ -76,11 +80,126 @@ def _run_workflow(args, X_train, y_train, X_eval, y_eval, axis, label: str) -> i
                 Path(primary.report(str(out / f"{label}_signal{i}.html"), sample=int(i)))
             )
 
+    if getattr(args, "monitor", False):
+        written += _run_monitor(args, clf, X_train, y_train, X_eval, out, label)
+
+    if getattr(args, "triage", False):
+        written += _run_triage(args, clf, X_train, y_train, X_eval, y_eval, out, label)
+
     print(f"\ntop conflict bands ({args.regime}): {', '.join(primary.top_conflict_bands(3))}")
     print(f"\nwrote {len(written)} files to {out}/")
     for p in written:
         print(f"  {p.name}")
     return 0
+
+
+def _run_monitor(args, clf, X_train, y_train, X_eval, out, label):
+    """Chart the evaluation cohort against limits learned on the training one.
+
+    The model is refitted on part of the training cohort so that the rest can
+    serve as a reference the band models have never seen. Without that the
+    limits describe in-sample behaviour and every later batch looks drifted -
+    the single easiest way to get this wrong.
+    """
+    import warnings
+
+    from sklearn.base import clone
+    from sklearn.model_selection import train_test_split
+
+    from .monitor import ControlProfile
+
+    X_ref_fit, X_ref, y_ref_fit, _ = train_test_split(
+        X_train, y_train, test_size=0.25, stratify=y_train, random_state=args.seed)
+    monitored = clone(clf).fit(X_ref_fit, y_ref_fit)
+    print(f"\nbuilding a control profile: model refitted on {X_ref_fit.shape[0]} "
+          f"spectra, limits from {X_ref.shape[0]} it has never seen")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        profile = ControlProfile.fit(monitored, X_ref, n_batches=args.monitor_batches,
+                                     laser_nm=args.laser_nm, random_state=args.seed)
+        for w in caught:
+            print(f"  note: {w.message}")
+    print(f"  {profile}")
+
+    report = profile.check(X_eval, name=f"{label} evaluation cohort")
+    print("\n" + report.summary())
+    if not report.is_in_control:
+        cols = ["statistic", "label", f"{profile.axis_name_}_lo",
+                f"{profile.axis_name_}_hi", "value", "centre", "z"]
+        print("\n" + report.out_of_control[cols].round(5).to_string(index=False))
+
+    written = [out / f"{label}_control_limits.csv", out / f"{label}_control_check.csv",
+               out / f"{label}_control_profile.json"]
+    profile.to_frame().to_csv(written[0], index=False)
+    report.to_csv(written[1])
+    profile.save(written[2])
+
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        from . import viz
+
+        viz.plot_control_chart(report).savefig(
+            out / f"{label}_control_chart.png", dpi=150, bbox_inches="tight")
+        written.append(out / f"{label}_control_chart.png")
+    except ImportError:
+        print("  (matplotlib not installed - skipping the control chart)")
+    return written
+
+
+def _run_triage(args, clf, X_train, y_train, X_eval, y_eval, out, label):
+    """Calibrate a quality-control policy and write the evidence for it."""
+    from .triage import Triage, compare_conflict_scores
+
+    print("\ncalibrating triage policy")
+    tri = Triage(conflict_score=args.conflict_score,
+                 review_rate=args.review_rate).fit(clf, X_train, y_train)
+    print(f"  conflict direction: {tri.orientation_source_}")
+    report = tri.assess(X_eval, y_eval)
+    print("  actions:", {k: int(v) for k, v in report.action_counts.items()})
+
+    written = []
+    paths = {
+        "triage": out / f"{label}_triage.csv",
+        "scores": out / f"{label}_conflict_scores.csv",
+    }
+    report.table.to_csv(paths["triage"], index=False)
+    written.append(paths["triage"])
+
+    if y_eval is not None:
+        ev = tri.evaluate(X_eval, y_eval)
+        print("\n" + ev["separation"].round(3).to_string(index=False))
+        o = ev["orthogonality"]
+        print(f"\n  novelty vs conflict: Spearman rho {o['spearman_rho']:+.3f}, "
+              f"flag overlap {o['jaccard_overlap']:.3f}")
+        print(f"  {o['n_novel_only']} novel only, {o['n_conflicted_only']} conflicted only, "
+              f"{o['n_both']} both")
+        print("\n  is the conflict flag worth having?")
+        for k, v in ev["summary"].items():
+            print(f"    {k:38s} {v}")
+        ev["risk_coverage"].to_csv(out / f"{label}_risk_coverage.csv", index=False)
+        written.append(out / f"{label}_risk_coverage.csv")
+        table = compare_conflict_scores(clf, X_train, y_train, X_eval, y_eval,
+                                        review_rate=args.review_rate)
+        table.to_csv(paths["scores"], index=False)
+        written.append(paths["scores"])
+        print("\n  every conflict descriptor, compared:\n")
+        print("   " + table.round(3).to_string(index=False).replace("\n", "\n   "))
+
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            from . import viz
+
+            viz.plot_triage_map(report).savefig(
+                out / f"{label}_triage_map.png", dpi=150, bbox_inches="tight")
+            viz.plot_risk_coverage(ev["risk_coverage"]).savefig(
+                out / f"{label}_risk_coverage.png", dpi=150, bbox_inches="tight")
+            written += [out / f"{label}_triage_map.png",
+                        out / f"{label}_risk_coverage.png"]
+        except ImportError:
+            print("  (matplotlib not installed - skipping triage figures)")
+    return written
 
 
 def _cmd_demo(args) -> int:
@@ -123,6 +242,8 @@ def _cmd_bacteria(args) -> int:
     )
     print(data)
     args.axis_name = "cm-1"
+    if args.laser_nm is None:
+        args.laser_nm = 633.0          # Ho et al. excitation
     if args.band_range is None:
         args.band_range = [400.0, min(1800.0, float(data.axis.max()))]
     return _run_workflow(
@@ -144,6 +265,21 @@ def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--max-iter", type=int, default=30)
     p.add_argument("--n-reports", type=int, default=3,
                    help="per-signal HTML reports to write, highest DG first")
+    p.add_argument("--monitor", action="store_true",
+                   help="learn control limits on the training cohort and chart the "
+                        "evaluation cohort against them, without using its labels")
+    p.add_argument("--monitor-batches", type=int, default=20,
+                   help="reference batches carved from the training cohort")
+    p.add_argument("--laser-nm", type=float, default=None,
+                   help="excitation wavelength, so bands also report where they "
+                        "fall on the detector")
+    p.add_argument("--triage", action="store_true",
+                   help="also calibrate a quality-control policy and test whether "
+                        "the conflict flag adds anything to model confidence")
+    p.add_argument("--review-rate", type=float, default=0.10,
+                   help="share of signals the conflict flag should send for review")
+    p.add_argument("--conflict-score", default="eredg",
+                   choices=["eredg", "dg", "stress", "mute"])
     p.add_argument("--seed", type=int, default=0)
 
 

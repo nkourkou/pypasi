@@ -12,6 +12,13 @@ contiguous bands, gives each its own classifier, and lets those band agents
 negotiate over an interaction graph. The trajectory they take is measurable, and
 it is attributable back to specific regions of the spectrum.
 
+The most direct use is monitoring. A fitted model keeps producing predictions
+long after the data stops looking like what it was trained on, and accuracy —
+which would say so — needs labels you do not have when a new batch arrives.
+`pypasi` charts the band-level quantities the negotiation already produces as
+process variables and reports **which wavenumber interval left its control
+limits**, with no labels at all.
+
 ---
 
 ## Install
@@ -216,6 +223,151 @@ Modes: `noise`, `spike`, `silence` (also freezes the band), `swap` (gives a band
 another class's evidence). All corrupt the same number of bands at a matched
 fraction, so modes are directly comparable.
 
+## Monitoring a new batch, without labels
+
+The question a laboratory actually has when spectra arrive: *has anything
+changed, and where?*
+
+```python
+from pypasi import ControlProfile
+
+profile = ControlProfile.fit(clf, X_reference, batches=runs, laser_nm=633)
+report = profile.check(X_new_batch, name="2026-03-14")
+print(report.summary())
+```
+
+```
+2026-03-14: 480 spectra, 3 of 14 band-statistics outside 3 sigma
+  worst: B5 (1196-1395 cm-1) on mean_stress, z = +8.4
+  bands flagged: B5, B4, B6
+```
+
+`report.table` carries, per band and statistic, the reference centre and limits,
+this batch's value, its standardised deviation and whether it breached — plus the
+scattered wavelength of each band when `laser_nm` is given, because a throughput
+problem lives at a place on the detector rather than at a Raman shift.
+
+```python
+frame = profile.check_many(batches, names)     # one row per batch, for a trend
+viz.plot_control_chart(report)                 # this batch against its limits
+viz.plot_control_trend(frame)                  # drift score across a run
+profile.save("qc.json")                        # limits travel; re-attach a model
+ControlProfile.load("qc.json", estimator=clf)
+```
+
+**This is not outlier detection.** `NoveltyDetector` asks whether a *spectrum* is
+unlike the training data, per sample, in input space. This asks whether a *batch*
+is disturbing the fitted model, answers per band, and hands back an interval in
+cm⁻¹ you can take to the instrument. Run both.
+
+### Three things that decide whether the chart is trustworthy
+
+**Hold the reference out of fitting.** Band models fit their own training data
+better than anything else, so a profile built on the spectra the estimator was
+fitted on describes in-sample behaviour and flags every honest batch that
+follows. The effect scales with overfitting — negligible with thousands of
+training spectra per band, severe with a few hundred.
+
+**Use real acquisition runs as reference batches.** Batches carved at random from
+one cohort share an instrument, an operator and a session, so their spread
+understates real batch-to-batch variation and the limits come out too tight.
+`fit` warns when you pass `X` instead of `batches=`.
+
+**Batch size is handled, not assumed.** The charted value is a batch mean, so a
+Shewhart chart would shrink its limits as one over the square root of the batch
+size — which is wrong whenever batches genuinely differ from each other, and
+makes the chart cry wolf on any batch larger than the reference runs. `fit`
+therefore splits each reference batch in half to separate the two components:
+
+```
+var(batch mean of m) = sigma_within^2 / m + sigma_between^2
+```
+
+The between-batch part is common to both halves and cancels in their difference,
+leaving sampling noise; the spread of the batch means carries both. Limits then
+shrink with batch size only as far as real batch effects allow, and stop.
+
+Seven bands on two statistics is fourteen tests at once, so at three sigma a good
+batch throws a single flag roughly once in thirty. A lone breach is a reason to
+look; several bands at once, or the same band across consecutive batches, is a
+reason to act.
+
+## Quality-control triage
+
+The practical use: flag predictions a clinician should not act on unreviewed.
+
+```python
+from pypasi import Triage
+
+tri = Triage(review_rate=0.10).fit(clf, X_train, y_train)   # calibrate on clean data
+report = tri.assess(X_new, y_new)                           # per-signal actions
+print(report.action_counts)
+```
+
+**A prediction can be untrustworthy for two unrelated reasons, and conflating
+them makes the flag useless.**
+
+An **outlier** is a spectrum unlike anything in the training data - wrong
+specimen, contamination, substrate change, a cosmic ray. It lives in input space,
+and chemometrics has measured it for decades with the squared prediction error
+and Hotelling's T² of a PCA model. Such a spectrum should be re-acquired; the
+model was never entitled to an opinion about it.
+
+**Internal disagreement** is different. The spectrum sits comfortably inside the
+training distribution, yet its bands argue for different classes. This is a real
+specimen that genuinely looks like two things at once - the case for a second
+assay or an expert eye, not for re-measurement.
+
+Crossing the two gives four actions rather than one flag:
+
+| novelty | conflict | action | meaning |
+| --- | --- | --- | --- |
+| low | low | `accept` | coherent evidence, typical spectrum |
+| low | **high** | `review` | ordinary spectrum, bands disagree - secondary validation |
+| **high** | low | `remeasure` | specimen or acquisition is suspect |
+| **high** | **high** | `reject` | both |
+
+`review_rate` sets the conflict threshold as a quantile of the clean calibration
+distribution, so the referral rate is a number you choose rather than one you
+discover - which is the knob a clinic actually has.
+
+### Proving it is not just outlier detection
+
+```python
+evidence = tri.evaluate(X_eval, y_eval)
+```
+
+Four questions, four answers:
+
+- **`orthogonality`** - rank correlation between novelty and conflict, and the
+  overlap between the two flags. Near zero is the claim.
+- **`conditional`** - does conflict still separate right from wrong *after
+  restricting to in-distribution signals*? If it does, it cannot be novelty
+  detection wearing a different hat.
+- **`among_confident`** - the manuscript's actual claim: is a conflicted
+  prediction worth flagging *even when the classifier is confident about it*?
+- **`incremental`** and **`risk_coverage`** - does it beat, or add to, the
+  obvious baseline of low predicted probability? Weights for the combination are
+  fitted on the calibration data, not chosen by hand.
+
+**The direction is learned, not assumed.** Whether high or low eREDG indicates
+trouble is dataset-dependent - the manuscript says so, and it is - so `fit`
+determines the sign from calibration labels and records how it did:
+
+```python
+compare_conflict_scores(clf, X_cal, y_cal, X_eval, y_eval)
+```
+
+tries all four descriptors (`eredg`, `dg`, `stress`, `mute`) and reports which,
+if any, is `worth_using`. Run this first on a new dataset. On the bundled
+synthetic demo the honest answer is *none of them* - the model's own confidence
+is the better flag there - and the tool says so rather than flattering itself.
+Select a descriptor on a third split before reporting a number as final.
+
+```bash
+pypasi demo --triage --review-rate 0.12 --out results/demo
+```
+
 ## Figures
 
 ```python
@@ -227,6 +379,10 @@ viz.plot_importance_vs_conflict(audit, imp, perfeat) # the two questions togethe
 viz.plot_stress_map(audit.result, clf.bands_, i)     # one signal, band x iteration
 viz.plot_regime_comparison(table)                    # one panel per metric
 viz.plot_dg_curve(frame)                             # effort under corruption
+viz.plot_triage_map(report)                          # novelty x conflict, by action
+viz.plot_risk_coverage(evidence["risk_coverage"])    # accuracy as cases are handed off
+viz.plot_control_chart(report)                       # one batch against its limits
+viz.plot_control_trend(frame)                        # drift score across batches
 ```
 
 Every function takes `dark=True` and returns the figure. The palette is
@@ -246,7 +402,15 @@ pypasi bacteria --data-dir path/to/bacteria-ID --out results/bacteria
 
 Common options: `--n-bands`, `--band-method {equal_width,peak_informed}`,
 `--band-range LO HI`, `--topology {chain,complete,knn}`,
-`--regime {plain,H1,H2}`, `--max-iter`, `--n-reports`, `--seed`.
+`--regime {plain,H1,H2}`, `--max-iter`, `--n-reports`, `--seed`,
+`--triage --review-rate R --conflict-score {eredg,dg,stress,mute}`, and
+`--monitor --monitor-batches N --laser-nm NM`.
+
+`--monitor` runs the batch workflow end to end: it refits the model on part of
+the training cohort so the rest can serve as a reference it has never seen,
+learns the limits there, charts the evaluation cohort against them without
+touching its labels, and writes the limits, the check, a reusable
+`*_control_profile.json` and the chart.
 
 ## Data
 

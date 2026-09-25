@@ -15,6 +15,10 @@ Six plots, each answering one question:
     How do Plain, H1 and H2 differ in accuracy and in trajectory?
 :func:`plot_dg_curve`
     How does reconciliation effort grow as evidence is corrupted?
+:func:`plot_control_chart`
+    Has a new batch left the limits, and in which wavenumber interval?
+:func:`plot_control_trend`
+    How has the drift score moved across a run of batches?
 
 All take ``dark=True`` for a dark-surface variant and return the Matplotlib
 figure, so callers can adjust or save as they like. Requires the ``viz`` extra.
@@ -38,6 +42,10 @@ __all__ = [
     "plot_stress_map",
     "plot_regime_comparison",
     "plot_dg_curve",
+    "plot_triage_map",
+    "plot_risk_coverage",
+    "plot_control_chart",
+    "plot_control_trend",
     "Palette",
 ]
 
@@ -415,5 +423,221 @@ def plot_dg_curve(frame, *, dark: bool = False, x="damage_fraction", value="DG_m
     ax.set_ylabel(value.replace("_", " "), color=p.secondary, fontsize=9.5)
     ax.margins(x=0.12)
     _title(ax, title, p, "higher means the decision took more internal negotiation")
+    fig.tight_layout()
+    return fig
+
+
+def plot_triage_map(report, *, dark: bool = False, log_novelty: bool = True,
+                    title: str = "Triage map"):
+    """Novelty against conflict, with the four actions as quadrants.
+
+    The picture makes the central claim visible: a strange spectrum and a
+    self-contradicting one are different failures, and they land in different
+    quadrants. Where ground truth is available, errors are drawn as crosses so
+    identity does not rest on colour.
+
+    Parameters
+    ----------
+    report
+        A :class:`~pypasi.triage.TriageReport` from
+        :meth:`~pypasi.triage.Triage.assess`.
+    """
+    t = report.table
+    thr_c = report.thresholds["conflict"]
+    fig, ax, p = _figure(dark, (7.6, 5.4))
+    good, bad = "#0ca30c", "#d03b3b"
+
+    x = t["novelty"].to_numpy(dtype=float)
+    yv = t["conflict"].to_numpy(dtype=float)
+    if log_novelty:
+        x = np.clip(x, 1e-3, None)
+        ax.set_xscale("log")
+
+    if "correct" in t:
+        ok = t["correct"].to_numpy() == 1
+        ax.scatter(x[ok], yv[ok], s=26, facecolor=good, edgecolor=p.surface,
+                   linewidth=0.8, alpha=0.75, zorder=3, label="correct")
+        ax.scatter(x[~ok], yv[~ok], s=52, marker="X", facecolor=bad,
+                   edgecolor=p.surface, linewidth=1.0, zorder=4, label="incorrect")
+        # Above the axes: the four corners are taken by the quadrant labels.
+        ax.legend(frameon=False, fontsize=9, ncol=2, labelcolor=p.secondary,
+                  loc="lower right", bbox_to_anchor=(1.0, 1.005), borderaxespad=0.0)
+    else:
+        ax.scatter(x, yv, s=26, facecolor=p.series[0], edgecolor=p.surface,
+                   linewidth=0.8, alpha=0.75, zorder=3)
+
+    ax.axvline(1.0, color=p.secondary, linewidth=1.2, linestyle="--", zorder=2)
+    ax.axhline(thr_c, color=p.secondary, linewidth=1.2, linestyle="--", zorder=2)
+
+    ax.margins(y=0.12)
+    counts = report.action_counts
+    # Quadrant labels in axes coordinates, inset from each corner.
+    corners = {
+        "accept":    (0.015, 0.02, "left", "bottom"),
+        "review":    (0.015, 0.98, "left", "top"),
+        "remeasure": (0.985, 0.02, "right", "bottom"),
+        "reject":    (0.985, 0.98, "right", "top"),
+    }
+    for action, (fx, fy, ha, va) in corners.items():
+        ax.text(fx, fy, f"{action}\nn = {int(counts.get(action, 0))}",
+                transform=ax.transAxes, ha=ha, va=va, color=p.muted,
+                fontsize=9, linespacing=1.3, zorder=5)
+
+    ax.set_xlabel("novelty  (> 1 means unlike the training data)",
+                  color=p.secondary, fontsize=9.5)
+    ax.set_ylabel(f"conflict  ({report.thresholds['conflict_score']})",
+                  color=p.secondary, fontsize=9.5)
+    _title(ax, title, p,
+           f"review rate {report.thresholds['review_rate']:.0%} "
+           f"· {len(t)} signals")
+    fig.tight_layout()
+    return fig
+
+
+def plot_risk_coverage(frame, *, dark: bool = False,
+                       title: str = "Accuracy retained as cases are handed off"):
+    """Risk-coverage curves for several flags.
+
+    Ranks signals by each score and hands off the least trustworthy first. A
+    useful flag lifts accuracy as coverage falls; one that carries no
+    information leaves the curve flat. The model's own confidence is the
+    baseline worth beating.
+    """
+    fig, ax, p = _figure(dark, (7.8, 4.4))
+    names = list(dict.fromkeys(frame["score"].astype(str)))
+    ends = []
+    for i, name in enumerate(names):
+        sub = frame[frame["score"].astype(str) == name].sort_values("coverage")
+        c = p.series[i % len(p.series)]
+        ax.plot(sub["coverage"], sub["accuracy"], color=c, linewidth=2.0,
+                marker="o", markersize=6.5, markeredgecolor=p.surface,
+                markeredgewidth=1.6, zorder=3, label=name)
+        ends.append((name, float(sub.iloc[0]["coverage"]), float(sub.iloc[0]["accuracy"])))
+    # Stagger the left-edge labels so close curves stay readable.
+    lo = min(e[2] for e in ends)
+    hi = max(e[2] for e in ends)
+    gap = 0.055 * ((hi - lo) or 1.0)
+    placed = {}
+    for name, cx, cy in sorted(ends, key=lambda e: e[2]):
+        prev = max(placed.values(), default=-np.inf)
+        placed[name] = max(cy, prev + gap) if placed else cy
+    for name, cx, _ in ends:
+        ax.annotate(name, (cx, placed[name]), xytext=(-9, 0),
+                    textcoords="offset points", ha="right", va="center",
+                    color=p.secondary, fontsize=9, annotation_clip=False)
+    ax.legend(frameon=False, fontsize=9, loc="lower right", labelcolor=p.secondary)
+    ax.set_xlabel("coverage (share of signals kept)", color=p.secondary, fontsize=9.5)
+    ax.set_ylabel("accuracy on the kept signals", color=p.secondary, fontsize=9.5)
+    ax.margins(x=0.18)
+    _title(ax, title, p, "steeper to the left means the flag is finding real errors")
+    fig.tight_layout()
+    return fig
+
+
+def plot_control_chart(report, *, dark: bool = False, statistic: str | None = None,
+                       title: str = "Per-band control chart"):
+    """One batch against its limits, band by band.
+
+    The vertical axis is standardised, so every statistic shares one scale and
+    the shaded strip is the in-control region whatever is being charted. Bands
+    are laid out in wavenumber order with their intervals under the labels,
+    because the useful output of this chart is an interval to take to the
+    instrument, not a score.
+    """
+    import numpy as _np
+
+    table = report.table
+    stats = [statistic] if statistic else list(dict.fromkeys(table["statistic"]))
+    table = table[table["statistic"].isin(stats)]
+    labels = list(dict.fromkeys(table["label"]))
+    axis_name = report.axis_name
+    lo = {r["label"]: r[f"{axis_name}_lo"] for _, r in table.iterrows()}
+    hi = {r["label"]: r[f"{axis_name}_hi"] for _, r in table.iterrows()}
+
+    fig, ax, p = _figure(dark, (max(7.2, 1.15 * len(labels) + 3.4), 4.2))
+    x = _np.arange(len(labels))
+    ax.axhspan(-report.k, report.k, color=p.grid, alpha=0.55, zorder=0)
+    ax.axhline(0.0, color=p.muted, lw=1.0, zorder=1)
+    for s in (report.k, -report.k):
+        ax.axhline(s, color=p.div_high, lw=1.2, ls="--", zorder=1)
+
+    offsets = _np.linspace(-0.22, 0.22, len(stats)) if len(stats) > 1 else [0.0]
+    for si, (stat, off) in enumerate(zip(stats, offsets)):
+        sub = table[table["statistic"] == stat].set_index("label").reindex(labels)
+        z = sub["z"].to_numpy(dtype=float)
+        out = sub["out_of_control"].to_numpy(dtype=bool)
+        colour = p.series[si % len(p.series)]
+        ax.vlines(x + off, 0, z, color=colour, lw=1.4, alpha=0.55, zorder=2)
+        ax.scatter(x + off, z, s=[110 if o else 64 for o in out],
+                   marker="X" if si else "o",
+                   color=[p.div_high if o else colour for o in out],
+                   edgecolor=p.surface, linewidth=1.6, zorder=3,
+                   label=stat.replace("_", " "))
+        for xi, (zi, oi) in enumerate(zip(z, out)):
+            if oi and _np.isfinite(zi):
+                ax.annotate(f"{zi:+.0f}", (xi + off, zi), textcoords="offset points",
+                            xytext=(0, 9 if zi > 0 else -15), ha="center",
+                            fontsize=8.5, color=p.secondary)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{lab}\n{lo[lab]:.0f}-{hi[lab]:.0f}" for lab in labels],
+                       color=p.secondary, fontsize=8.5)
+    ax.set_xlabel(f"band  ({axis_name})", color=p.secondary)
+    ax.set_ylabel(f"standardised deviation from the reference", color=p.secondary)
+    # Bound by the data, not symmetrically: drift is usually one-signed and a
+    # mirrored axis would waste half the chart. Both limit lines stay visible.
+    z_all = table["z"].to_numpy(dtype=float)
+    z_all = z_all[_np.isfinite(z_all)]
+    zlo = min(-report.k * 1.35, float(z_all.min()) * 1.2 if z_all.size else 0.0)
+    zhi = max(report.k * 1.35, float(z_all.max()) * 1.2 if z_all.size else 0.0)
+    pad = 0.08 * (zhi - zlo)
+    ax.set_ylim(zlo - pad, zhi + pad)
+    ax.grid(axis="x", visible=False)
+    state = "in control" if report.is_in_control else (
+        f"{report.n_out_of_control} outside the limits: "
+        + ", ".join(report.bands_out_of_control()))
+    _title(ax, f"{title} - {report.name}", p,
+           sub=f"{report.n_samples} spectra, no labels used  |  {state}")
+    if len(stats) > 1:
+        ax.legend(frameon=False, fontsize=8.8, labelcolor=p.secondary, ncol=len(stats),
+                  loc="upper left")
+    fig.tight_layout()
+    return fig
+
+
+def plot_control_trend(frame, *, dark: bool = False, k: float | None = None,
+                       title: str = "Drift across batches"):
+    """The drift score of each batch in order, with the control threshold.
+
+    Takes the frame returned by :meth:`pypasi.ControlProfile.check_many`. This
+    is the view that turns a one-off check into monitoring: a single batch
+    outside the limits is a signal, several in a row is a change.
+    """
+    import numpy as _np
+
+    k = float(k if k is not None else frame.attrs.get("k", 3.0))
+    fig, ax, p = _figure(dark, (max(7.0, 0.7 * len(frame) + 3.0), 3.9))
+    x = _np.arange(len(frame))
+    y = frame["drift_score"].to_numpy(dtype=float)
+    out = ~frame["in_control"].to_numpy(dtype=bool)
+
+    ax.axhspan(0, k, color=p.grid, alpha=0.55, zorder=0)
+    ax.axhline(k, color=p.div_high, lw=1.2, ls="--", zorder=1)
+    ax.plot(x, y, color=p.series[0], lw=1.8, zorder=2)
+    ax.scatter(x, y, s=[105 if o else 60 for o in out],
+               color=[p.div_high if o else p.series[0] for o in out],
+               edgecolor=p.surface, linewidth=1.6, zorder=3)
+    ax.text(len(frame) - 0.5, k, f" {k:g} sigma", color=p.div_high, fontsize=8.5,
+            va="bottom", ha="right")
+    ax.set_xticks(x)
+    ax.set_xticklabels(frame["batch"].astype(str), color=p.secondary, fontsize=8.8,
+                       rotation=25, ha="right")
+    ax.set_ylabel("drift score  (largest |z| in the batch)", color=p.secondary)
+    ax.set_ylim(0, max(k * 1.35, float(_np.nanmax(y)) * 1.18 if len(y) else k))
+    ax.grid(axis="x", visible=False)
+    n_out = int(out.sum())
+    _title(ax, title, p,
+           sub=f"{len(frame)} batches, {n_out} outside the limits  |  "
+               f"statistic: {frame.attrs.get('statistic', 'mean_stress').replace('_', ' ')}")
     fig.tight_layout()
     return fig

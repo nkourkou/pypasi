@@ -35,11 +35,18 @@ class ConflictSpec:
         Boolean mask of the samples that actually received contradictory
         evidence. This is the ground truth an audit should recover, and it is
         what the package's own tests check against.
+    outlier
+        Boolean mask of the samples given an out-of-distribution artefact. These
+        are strange *spectra*, as opposed to conflicted ones, which are ordinary
+        spectra carrying contradictory evidence. Keeping the two masks separate
+        is what makes it possible to show that conflict detection and novelty
+        detection are not the same thing.
     """
 
     informative: tuple[float, ...]
     conflicting: tuple[float, ...]
     conflicted: np.ndarray
+    outlier: np.ndarray
 
 
 def _gaussian(axis: np.ndarray, center: float, width: float) -> np.ndarray:
@@ -60,6 +67,8 @@ def make_conflict_signals(
     conflict_rate: float = 0.35,
     noise: float = 0.35,
     baseline: float = 0.3,
+    outlier_rate: float = 0.0,
+    outlier_strength: float = 8.0,
     random_state=None,
 ):
     """Generate 1-D signals with class structure and planted band conflict.
@@ -71,6 +80,15 @@ def make_conflict_signals(
     distinction that matters, because a band with no information produces
     near-uniform evidence that agrees with everything and registers no conflict
     at all.
+
+    Setting ``outlier_rate`` additionally gives a share of signals a narrow
+    artefact of the kind a cosmic ray leaves, placed in a region that carries no
+    class information. That puts them off the training manifold in input space
+    while leaving their band-level class evidence intact, so the two failure
+    modes can be studied apart: an outlier is a strange spectrum, a conflicted
+    sample is an ordinary spectrum whose regions disagree. Generate a clean
+    training set and a contaminated evaluation set to exercise
+    :class:`pypasi.triage.Triage`.
 
     The default layout puts informative peaks on both sides of the conflicting
     one. That is deliberate: stress measures disagreement with a band's
@@ -125,10 +143,30 @@ def make_conflict_signals(
             X[i] += amp * _gaussian(axis, ctr + _offset(claimed), peak_width)
 
     X += rng.normal(0.0, noise, size=X.shape)
+
+    # Out-of-distribution artefact: a narrow spike, as a cosmic ray leaves, put
+    # where no class information lives. Smooth backgrounds are a poor choice for
+    # this - the training spectra already contain broad shapes, so a PCA model
+    # reconstructs them happily and they are not off-manifold at all.
+    outlier = np.zeros(n_samples, dtype=bool)
+    if outlier_rate > 0:
+        outlier = rng.random(n_samples) < float(outlier_rate)
+        informative_span = np.zeros(n_points, dtype=bool)
+        for ctr in tuple(informative_centers) + tuple(conflicting_centers):
+            informative_span |= np.abs(axis - ctr) < 4 * peak_width
+        quiet = np.nonzero(~informative_span)[0]
+        if outlier.any() and quiet.size:
+            for i in np.nonzero(outlier)[0]:
+                where = axis[rng.choice(quiet)]
+                X[i] += outlier_strength * (0.6 + 0.8 * rng.random()) * _gaussian(
+                    axis, where, peak_width * 0.12
+                )
+
     X = np.clip(X, 0.0, None)
     norms = np.linalg.norm(X, axis=1, keepdims=True)
     X = X / np.where(norms > 0, norms, 1.0)
-    spec = ConflictSpec(tuple(informative_centers), tuple(conflicting_centers), conflicted)
+    spec = ConflictSpec(tuple(informative_centers), tuple(conflicting_centers),
+                        conflicted, outlier)
     return X, y, axis, spec
 
 
