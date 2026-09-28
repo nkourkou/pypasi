@@ -45,14 +45,12 @@ that does no better than "the softmax was low" is not worth building.
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
 
 __all__ = [
-    "WeakOrientationWarning",
     "ACTIONS",
     "NoveltyDetector",
     "Triage",
@@ -153,10 +151,6 @@ class NoveltyDetector:
         )
 
 
-class WeakOrientationWarning(UserWarning):
-    """The learned sign of a conflict descriptor rests on a near-chance AUROC."""
-
-
 def _conflict_from_audit(audit, kind: str, gate_quantile: float):
     """Raw conflict per sample, plus a mask of which trajectories were active.
 
@@ -250,32 +244,12 @@ class Triage:
 
     # -------------------------------------------------------------------- fit
 
-    def fit(self, classifier, X_cal, y_cal=None, *, orient_on=None) -> "Triage":
+    def fit(self, classifier, X_cal, y_cal=None) -> "Triage":
         """Calibrate on clean signals the classifier was trained on or validated against.
 
         Nothing about the classifier is refitted. Calibration only records what
         "normal" looks like, in both senses, so that later thresholds mean
         something.
-
-        Parameters
-        ----------
-        orient_on : array-like of int, optional
-            Binary target used to learn which direction of the descriptor means
-            trouble. Defaults to "the prediction was wrong".
-
-            **This default is wrong for a degradation detector, and silently
-            so.** The sign is chosen by whether the descriptor's AUROC against
-            the target exceeds 0.5, so a descriptor that is near chance against
-            *errors* gets its sign from noise - and if it comes out backwards, a
-            descriptor that separates *degraded acquisitions* at 0.75 is reported
-            at 0.25. On the Ho bacteria cohort this happened to ``dg``: 0.467
-            against errors on the calibration split flipped the sign, and the
-            descriptor screen recorded 0.246 against planted defects for a
-            quantity that runs at 0.754.
-
-            When the thing you want flagged is degradation and you have labels
-            for it, pass them here. :attr:`orientation_margin_` reports how close
-            the call was, and a margin under 0.05 emits a warning.
         """
         if not 0.0 < self.review_rate < 1.0:
             raise ValueError("review_rate must lie strictly between 0 and 1")
@@ -294,40 +268,20 @@ class Triage:
         # published convention is used and recorded as such.
         self.conflict_sign_ = 1
         self.orientation_source_ = "assumed (no calibration labels)"
-        self.orientation_margin_ = None
-        target, target_name = None, "a wrong prediction"
-        if orient_on is not None:
-            target = np.asarray(orient_on).astype(int).reshape(-1)
-            target_name = "the supplied target"
-            if target.size != len(X_cal):
-                raise ValueError(
-                    f"orient_on has {target.size} entries for {len(X_cal)} "
-                    "calibration signals")
-        elif y_cal is not None:
-            pred = (audit.y_pred_labels if audit.y_pred_labels is not None
-                    else audit.result.y_pred)
-            target = (pred != np.asarray(y_cal)).astype(int)
-
-        if target is not None and len(np.unique(target)) > 1:
+        if y_cal is not None:
             from sklearn.metrics import roc_auc_score
 
-            auc = float(roc_auc_score(target[active], raw[active])) if active.sum() > 2 \
-                else float(roc_auc_score(target, raw))
-            self.conflict_sign_ = -1 if auc < 0.5 else 1
-            self.calibration_auroc_ = max(auc, 1.0 - auc)
-            self.orientation_margin_ = abs(auc - 0.5)
-            self.orientation_source_ = (
-                f"learned on {target_name} (AUROC {self.calibration_auroc_:.3f})")
-            if self.orientation_margin_ < 0.05:
-                warnings.warn(
-                    f"the orientation of {self.conflict_score!r} was decided on an "
-                    f"AUROC of {auc:.3f} against {target_name} - a margin of "
-                    f"{self.orientation_margin_:.3f} from chance, so the sign is "
-                    f"close to arbitrary. Getting it backwards turns a descriptor "
-                    f"that separates at p into one that separates at 1-p. If the "
-                    f"event you want flagged is not {target_name}, pass "
-                    f"orient_on= with labels for the event you mean.",
-                    WeakOrientationWarning, stacklevel=2)
+            pred = (audit.y_pred_labels if audit.y_pred_labels is not None
+                    else audit.result.y_pred)
+            wrong = (pred != np.asarray(y_cal)).astype(int)
+            if len(np.unique(wrong)) > 1:
+                auc = float(roc_auc_score(wrong[active], raw[active])) if active.sum() > 2 \
+                    else float(roc_auc_score(wrong, raw))
+                self.conflict_sign_ = -1 if auc < 0.5 else 1
+                self.calibration_auroc_ = max(auc, 1.0 - auc)
+                self.orientation_source_ = (
+                    f"learned on calibration labels (AUROC {self.calibration_auroc_:.3f})"
+                )
         conflict = _orient(raw, active, self.conflict_sign_)
         self.conflict_threshold_ = float(np.quantile(conflict, 1.0 - self.review_rate))
         self.calibration_conflict_ = conflict
@@ -533,16 +487,6 @@ class Triage:
             "note": note,
         }
 
-        # A cohort where the model is right about everything (or wrong about
-        # everything) has no ROC to compute, so every AUROC is NaN and idxmax
-        # raises "Encountered all NA values" - which tells the caller nothing.
-        # Say what actually happened instead.
-        if separation["auroc_error"].isna().all():
-            raise ValueError(
-                f"none of the scores can be evaluated against error: the model "
-                f"got {int(len(wrong) - wrong.sum())} of {len(wrong)} predictions "
-                f"right, so there is only one class of outcome and an AUROC is "
-                f"undefined. Evaluate on a cohort the model makes mistakes on.")
         best_uncond = separation.loc[separation["auroc_error"].idxmax(), "score"]
         sep = separation.set_index("score")
         summary = {
