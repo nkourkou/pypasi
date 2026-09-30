@@ -309,3 +309,32 @@ def test_reference_implementation_matches_the_batched_engine():
     looped, weights = negotiate_looped(L, random_state=0, **kw)
     np.testing.assert_allclose(batched.logits_final, looped, atol=1e-9)
     np.testing.assert_allclose(batched.weights_final, weights, atol=1e-9)
+
+
+def test_minority_evidence_is_internally_consistent():
+    """A row flagged as dissenting must not show the same class on both sides."""
+    import numpy as np
+    from pypasi import BandNegotiationClassifier
+    from pypasi.datasets import make_conflict_signals
+
+    X, y, axis, *_ = make_conflict_signals(n_samples=400, random_state=0)
+    clf = BandNegotiationClassifier(axis=axis, n_bands=7, regime="H1",
+                                    random_state=0).fit(X, y)
+    tbl = clf.audit(X, y).minority_evidence()
+    dis = tbl[tbl["dissented"]]
+    assert len(dis) > 0
+    assert (dis["supported_class"] != dis["consensus_class"]).all()
+    assert (tbl["n_samples_dissenting"] <= tbl["n_samples_muted"]).all()
+
+
+def test_minority_evidence_needs_a_gate():
+    from pypasi import BandNegotiationClassifier
+    from pypasi.datasets import make_conflict_signals
+    import pytest as _pytest
+
+    X, y, axis, *_ = make_conflict_signals(n_samples=200, random_state=0)
+    clf = BandNegotiationClassifier(axis=axis, n_bands=5, regime="plain",
+                                    random_state=0).fit(X, y)
+    audit = clf.audit(X, y)
+    tbl = audit.minority_evidence()
+    assert tbl.empty or not tbl["dissented"].any()

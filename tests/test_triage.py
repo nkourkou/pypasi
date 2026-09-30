@@ -265,3 +265,107 @@ def test_triage_map_works_without_ground_truth(cohorts, fitted, tmp_path):
     fig = viz.plot_triage_map(rep)
     fig.savefig(tmp_path / "nolabels.png", dpi=60)
     matplotlib.pyplot.close(fig)
+
+
+def test_evaluate_says_why_it_cannot_score_a_perfect_cohort():
+    """'Encountered all NA values' is not a usable error message."""
+    import numpy as np
+    import pytest as _pytest
+    from pypasi import BandNegotiationClassifier, Triage
+    from pypasi.datasets import make_conflict_signals
+
+    X, y, axis, *_ = make_conflict_signals(n_samples=200, random_state=0)
+    clf = BandNegotiationClassifier(axis=axis, n_bands=5, random_state=0).fit(X, y)
+    tri = Triage().fit(clf, X, y)
+    perfect = clf.predict(X)            # by construction the model is never wrong
+    with _pytest.raises(ValueError, match="only one class of outcome"):
+        tri.evaluate(X, perfect)
+
+
+# ------------------------------------------- orientation (0.5.1)
+
+
+def _orient_fixture():
+    import numpy as np
+    from pypasi import BandNegotiationClassifier
+    from pypasi.datasets import make_conflict_signals
+
+    X, y, axis, *_ = make_conflict_signals(n_samples=400, random_state=0)
+    clf = BandNegotiationClassifier(axis=axis, n_bands=5, random_state=0).fit(X, y)
+    rng = np.random.default_rng(0)
+    degraded = np.zeros(len(X), int)
+    bad = rng.choice(len(X), len(X) // 2, replace=False)
+    degraded[bad] = 1
+    return clf, X, y, degraded
+
+
+def test_orient_on_uses_the_supplied_target():
+    """A degradation detector must be orientable on degradation."""
+    from pypasi import Triage
+
+    clf, X, y, degraded = _orient_fixture()
+    t = Triage(conflict_score="dg").fit(clf, X, y, orient_on=degraded)
+    assert "the supplied target" in t.orientation_source_
+
+
+def test_default_orientation_is_still_the_error_target():
+    import numpy as np
+    import warnings as _w
+    from pypasi import Triage
+
+    clf, X, y, _ = _orient_fixture()
+    # the fixture classifier is perfect, so give it labels it gets wrong -
+    # otherwise there is only one outcome and no orientation to learn
+    noisy = np.asarray(y).copy()
+    flip = np.random.default_rng(2).choice(len(noisy), len(noisy) // 5, replace=False)
+    noisy[flip] = (noisy[flip] + 1) % len(np.unique(y))
+    with _w.catch_warnings():
+        _w.simplefilter("ignore")
+        t = Triage(conflict_score="dg").fit(clf, X, noisy)
+    assert "wrong prediction" in t.orientation_source_
+
+
+def test_orient_on_length_is_validated():
+    import pytest as _pytest
+    from pypasi import Triage
+
+    clf, X, y, degraded = _orient_fixture()
+    with _pytest.raises(ValueError, match="orient_on has"):
+        Triage().fit(clf, X, y, orient_on=degraded[:10])
+
+
+def test_a_near_chance_orientation_warns():
+    """The failure this exists for: a coin-flip sign silently inverts a descriptor."""
+    import numpy as np
+    import pytest as _pytest
+    from pypasi import Triage, WeakOrientationWarning
+
+    clf, X, y, _ = _orient_fixture()
+    coin = np.random.default_rng(1).integers(0, 2, len(X))
+    with _pytest.warns(WeakOrientationWarning, match="close to arbitrary"):
+        Triage().fit(clf, X, y, orient_on=coin)
+
+
+def test_orientation_margin_is_recorded():
+    from pypasi import Triage
+
+    clf, X, y, degraded = _orient_fixture()
+    t = Triage(conflict_score="dg").fit(clf, X, y, orient_on=degraded)
+    assert t.orientation_margin_ is not None
+    assert 0.0 <= t.orientation_margin_ <= 0.5
+
+
+def test_flipping_the_target_flips_the_sign_and_the_auroc():
+    """Orientation is the whole difference between p and 1-p."""
+    import numpy as np
+    from sklearn.metrics import roc_auc_score
+    from pypasi import Triage
+
+    clf, X, y, degraded = _orient_fixture()
+    a = Triage(conflict_score="dg").fit(clf, X, y, orient_on=degraded)
+    b = Triage(conflict_score="dg").fit(clf, X, y, orient_on=1 - degraded)
+    assert a.conflict_sign_ == -b.conflict_sign_
+    ta = a.assess(X, y).table["conflict"].to_numpy()
+    tb = b.assess(X, y).table["conflict"].to_numpy()
+    assert roc_auc_score(degraded, ta) == pytest.approx(
+        1.0 - roc_auc_score(degraded, tb), abs=1e-9)

@@ -1,6 +1,6 @@
 # pypasi
 
-**Process-aware spectral inference.** Classify 1-D signals by negotiated consensus
+**Process-aware signal inference.** Classify 1-D signals by negotiated consensus
 among band-level models, then audit *how* the decision was reached: which regions
 of the signal disagreed, how long they held out, and what the raw data looks like
 there.
@@ -102,13 +102,78 @@ well on normalised spectra.
 wavenumber, the conventional measure of where a spectral model finds its
 information, with 1.0 as the usual cut-off.
 
+### Class evidence, and what scale it is on
+
 Band agents exchange logits, and getting those out of an arbitrary estimator is
 less obvious than it looks. Random forests and naive Bayes have no
 `decision_function`, so `pypasi` falls back to `log(predict_proba)`. Binary
 `decision_function` returns one number, and the natural-looking `[-d, +d]`
 *doubles* the scale of a proper two-class logit vector, inflating every
-divergence and breaking any threshold tuned elsewhere; `pypasi` uses `[0, d]`,
-which reproduces the model's own probabilities exactly.
+divergence and breaking any threshold tuned elsewhere; `pypasi` uses `[0, d]`.
+
+**That last construction reproduces the model's own probabilities exactly for a
+logistic score, and not otherwise.** It is exact for binary and multinomial
+logistic regression and for LDA, whose discriminant is a log posterior up to a
+constant. It is *not* exact for an SVM margin, which lives in scaled-feature
+units, nor for a PLS-DA response, which is a regression output onto one-hot
+targets. For those, the softmax has an arbitrary temperature - and since
+confidence weights, stress, the gate threshold and DG are all computed from that
+softmax, two estimators on two scales produce conflict numbers that cannot be
+compared.
+
+The scales really do differ. On synthetic conflict signals the mean-centred
+evidence has standard deviation 0.39 for PLS-DA and 7.86 for PCA-LDA, and mean
+band confidence follows it from 0.51 to 0.88. A saturated softmax has little
+room left to disagree, so the estimator with the gentler scale looks like the
+one whose bands disagree most informatively - a statement about units.
+
+Since 0.5.0 `pypasi.to_evidence` returns the values *and* an `EvidenceSpec`
+saying what they are, and the estimator repairs the scale by default:
+
+```python
+from pypasi import BandNegotiationClassifier, PLSDA
+
+clf = BandNegotiationClassifier(axis=axis, base_estimator=PLSDA(10)).fit(X, y)
+print(clf.evidence_report)
+#      estimator            source                   kind  temperature  nll_before  nll_after
+#          PLSDA decision_function  calibrated_log_proba        5.657       0.739      0.348
+```
+
+A single temperature is fitted on data the band models never saw - one
+parameter, monotone, order-preserving, so no band's prediction changes and only
+the sharpness of its distribution moves. Per-band calibration is available
+(`calibration="per_band"`) and is not the default, because making each band
+individually well calibrated normalises away exactly how informative each band
+is, which is the signal the audit consumes.
+
+Note that an *exact* logit is not a *calibrated* one: L2 shrinks logistic
+regression's coefficients, and its band models want a temperature near 7 on the
+same data. `calibration="always"` repairs that too, at the cost of a held-out
+split; `calibration="auto"` (the default) leaves exact-logit estimators alone so
+that upgrading costs no training data. `calibration=None` reproduces 0.4.x
+exactly and warns.
+
+### Auditing a classifier you already have
+
+Replacing a validated workflow is a high price for a diagnostic. `audit_external`
+leaves the laboratory's own model in charge and fits a band ensemble alongside
+it as an instrument:
+
+```python
+from pypasi import audit_external
+
+ext = audit_external(house_plsda, X_fit, y_fit, axis=axis, n_bands=7)
+ext.explain(todays_batch)
+#   host_prediction  band_prediction  agreement  conflict  novelty  worst_band  ...
+```
+
+`host_prediction` is the answer of record and is never overridden. The
+negotiation describes the *auxiliary* band system, not the internal reasoning of
+the host model, and disagreement between the two is a flag to investigate rather
+than a correction to apply. Degradation detection is a property of the spectra
+and transfers to any host; the relationship between conflict and a *wrong host
+prediction* does not, so `ext.validate(X, y)` measures it on labelled data
+instead of assuming it.
 
 ### Interaction topology
 

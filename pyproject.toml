@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pypasi"
-version = "0.4.0"
+version = "0.5.1"
 description = "Process-aware, band-resolved inference: classify 1-D signals by negotiated consensus among spectral bands, and audit how the decision was reached."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,6 +14,7 @@ keywords = [
     "raman", "spectroscopy", "chemometrics", "interpretable machine learning",
     "uncertainty", "model auditing", "consensus", "decision geometry",
     "drift detection", "quality control", "batch effects", "calibration transfer",
+    "probability calibration", "model auditing", "statistical process control",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

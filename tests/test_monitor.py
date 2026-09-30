@@ -303,3 +303,91 @@ def test_control_chart_works_for_an_in_control_batch(profile, tmp_path):
     fig = viz.plot_control_chart(profile.check(_fresh(300, 42), name="quiet"))
     fig.savefig(tmp_path / "quiet.png", dpi=60)
     matplotlib.pyplot.close(fig)
+
+
+# --------------------------------------------------- multiplicity (0.5.0)
+
+
+def test_k_effective_widens_with_the_number_of_tests(cohort, fitted):
+    X = cohort[0]
+    runs = [X[i::10] for i in range(10)]
+    two = ControlProfile.fit(fitted, batches=runs, multiplicity="sidak",
+                             statistics=("mean_stress", "band_confidence"))
+    six = ControlProfile.fit(fitted, batches=runs, multiplicity="sidak",
+                             statistics=MONITORED_STATISTICS[:6])
+    assert six.n_tests > two.n_tests
+    assert six.k_effective > two.k_effective > two.k
+
+
+def test_multiplicity_none_reproduces_0_4_limits(cohort, fitted):
+    X = cohort[0]
+    prof = ControlProfile.fit(fitted, batches=[X[i::10] for i in range(10)],
+                              multiplicity="none")
+    assert prof.k_effective == prof.k
+
+
+def test_empirical_is_never_looser_than_sidak(cohort, fitted):
+    """The floor that makes 'empirical' safe when the batches cannot resolve it."""
+    X = cohort[0]
+    runs = [X[i::10] for i in range(10)]
+    sidak = ControlProfile.fit(fitted, batches=runs, multiplicity="sidak")
+    emp = ControlProfile.fit(fitted, batches=runs, multiplicity="empirical")
+    assert emp.k_effective >= sidak.k_effective - 1e-9
+
+
+def test_empirical_calibration_is_held_out(cohort, fitted):
+    X = cohort[0]
+    prof = ControlProfile.fit(fitted, batches=[X[i::12] for i in range(12)],
+                              multiplicity="empirical")
+    assert prof.k_empirical_ is not None
+    assert prof.resolution_ == pytest.approx(1 / 12)
+
+
+def test_limits_report_exposes_the_resolution(cohort, fitted):
+    X = cohort[0]
+    prof = ControlProfile.fit(fitted, batches=[X[i::10] for i in range(10)])
+    rep = prof.limits_report()
+    assert rep["k_effective"] >= rep["k_nominal"]
+    assert rep["resolution"] == pytest.approx(0.1)
+    assert rep["n_tests"] == prof.n_tests
+
+
+def test_unknown_multiplicity_is_rejected(cohort, fitted):
+    X = cohort[0]
+    with pytest.raises(ValueError, match="unknown multiplicity"):
+        ControlProfile.fit(fitted, batches=[X[i::10] for i in range(10)],
+                           multiplicity="holm")
+
+
+def test_wider_limits_flag_a_clean_batch_less_often(cohort, fitted):
+    """The claim the correction makes, measured rather than asserted."""
+    X = cohort[0]
+    runs = [X[i::12] for i in range(12)]
+    # same random_state on both: the within/between variance decomposition draws
+    # from an RNG, so two unseeded profiles get slightly different limits and the
+    # comparison stops being about the multiplicity correction
+    loose = ControlProfile.fit(fitted, batches=runs, multiplicity="none",
+                               random_state=0)
+    tight = ControlProfile.fit(fitted, batches=runs, multiplicity="empirical",
+                               random_state=0)
+    rng = np.random.default_rng(0)
+    draws = [X[rng.choice(len(X), 60, replace=False)] for _ in range(30)]
+    n_loose = sum(not loose.check(b).is_in_control for b in draws)
+    n_tight = sum(not tight.check(b).is_in_control for b in draws)
+    assert n_tight <= n_loose
+
+
+def test_empirical_threshold_stays_usable_with_few_batches(cohort, fitted):
+    """A chart that can never fire is not a safe default.
+
+    The sample maximum of a handful of leave-one-out |z| values is a noisy
+    estimate of a far-tail quantile, and a statistic that happens to have a tiny
+    spread across the remaining batches sends it to absurdity. A ten-batch
+    profile once produced k = 26.
+    """
+    X = cohort[0]
+    for n in (6, 10, 20):
+        prof = ControlProfile.fit(fitted, batches=[X[i::n] for i in range(n)],
+                                  multiplicity="empirical")
+        assert prof.k_effective < 12.0, (n, prof.k_effective)
+        assert not prof.check(_fresh(400, 900 + n)).table.empty
