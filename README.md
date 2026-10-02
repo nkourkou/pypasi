@@ -380,50 +380,6 @@ Select a descriptor on a third split before reporting a number as final.
 pypasi demo --triage --review-rate 0.12 --out results/demo
 ```
 
-## Figures
-
-```python
-from pypasi import viz
-
-viz.plot_bands(clf.bands_, X, y)                     # signal with the partition
-viz.plot_band_conflict(audit)                        # conflict per band
-viz.plot_importance_vs_conflict(audit, imp, perfeat) # the two questions together
-viz.plot_stress_map(audit.result, clf.bands_, i)     # one signal, band x iteration
-viz.plot_regime_comparison(table)                    # one panel per metric
-viz.plot_dg_curve(frame)                             # effort under corruption
-viz.plot_triage_map(report)                          # novelty x conflict, by action
-viz.plot_risk_coverage(evidence["risk_coverage"])    # accuracy as cases are handed off
-viz.plot_control_chart(report)                       # one batch against its limits
-viz.plot_control_trend(frame)                        # drift score across batches
-```
-
-Every function takes `dark=True` and returns the figure. The palette is
-colour-vision-deficiency validated: the categorical hues clear the all-pairs CVD
-and normal-vision separation floors in both modes, signed quantities get a
-diverging scale with a neutral zero, magnitudes get a single hue, and every
-multi-series figure carries direct labels so identity never rests on colour
-alone. Requires the `viz` extra.
-
-## Command line
-
-```bash
-pypasi demo --out results/demo
-pypasi run --x X.npy --y y.npy --axis axis.npy --out results/mine
-pypasi bacteria --data-dir path/to/bacteria-ID --out results/bacteria
-```
-
-Common options: `--n-bands`, `--band-method {equal_width,peak_informed}`,
-`--band-range LO HI`, `--topology {chain,complete,knn}`,
-`--regime {plain,H1,H2}`, `--max-iter`, `--n-reports`, `--seed`,
-`--triage --review-rate R --conflict-score {eredg,dg,stress,mute}`, and
-`--monitor --monitor-batches N --laser-nm NM`.
-
-`--monitor` runs the batch workflow end to end: it refits the model on part of
-the training cohort so the rest can serve as a reference it has never seen,
-learns the limits there, charts the evaluation cohort against them without
-touching its labels, and writes the limits, the check, a reusable
-`*_control_profile.json` and the chart.
-
 ## Data
 
 `pypasi.datasets.make_conflict_signals` plants informative peaks and
