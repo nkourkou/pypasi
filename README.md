@@ -121,15 +121,6 @@ confidence weights, stress, the gate threshold and DG are all computed from that
 softmax, two estimators on two scales produce conflict numbers that cannot be
 compared.
 
-The scales really do differ. On synthetic conflict signals the mean-centred
-evidence has standard deviation 0.39 for PLS-DA and 7.86 for PCA-LDA, and mean
-band confidence follows it from 0.51 to 0.88. A saturated softmax has little
-room left to disagree, so the estimator with the gentler scale looks like the
-one whose bands disagree most informatively - a statement about units.
-
-Since 0.5.0 `pypasi.to_evidence` returns the values *and* an `EvidenceSpec`
-saying what they are, and the estimator repairs the scale by default:
-
 ```python
 from pypasi import BandNegotiationClassifier, PLSDA
 
@@ -138,20 +129,6 @@ print(clf.evidence_report)
 #      estimator            source                   kind  temperature  nll_before  nll_after
 #          PLSDA decision_function  calibrated_log_proba        5.657       0.739      0.348
 ```
-
-A single temperature is fitted on data the band models never saw - one
-parameter, monotone, order-preserving, so no band's prediction changes and only
-the sharpness of its distribution moves. Per-band calibration is available
-(`calibration="per_band"`) and is not the default, because making each band
-individually well calibrated normalises away exactly how informative each band
-is, which is the signal the audit consumes.
-
-Note that an *exact* logit is not a *calibrated* one: L2 shrinks logistic
-regression's coefficients, and its band models want a temperature near 7 on the
-same data. `calibration="always"` repairs that too, at the cost of a held-out
-split; `calibration="auto"` (the default) leaves exact-logit estimators alone so
-that upgrading costs no training data. `calibration=None` reproduces 0.4.x
-exactly and warns.
 
 ### Auditing a classifier you already have
 
