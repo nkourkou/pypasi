@@ -297,37 +297,10 @@ profile.save("qc.json")                        # limits travel; re-attach a mode
 ControlProfile.load("qc.json", estimator=clf)
 ```
 
-**This is not outlier detection.** `NoveltyDetector` asks whether a *spectrum* is
+** `NoveltyDetector` ** asks whether a *spectrum* is
 unlike the training data, per sample, in input space. This asks whether a *batch*
 is disturbing the fitted model, answers per band, and hands back an interval in
 cm⁻¹ you can take to the instrument. Run both.
-
-### Three things that decide whether the chart is trustworthy
-
-**Hold the reference out of fitting.** Band models fit their own training data
-better than anything else, so a profile built on the spectra the estimator was
-fitted on describes in-sample behaviour and flags every honest batch that
-follows. The effect scales with overfitting — negligible with thousands of
-training spectra per band, severe with a few hundred.
-
-**Use real acquisition runs as reference batches.** Batches carved at random from
-one cohort share an instrument, an operator and a session, so their spread
-understates real batch-to-batch variation and the limits come out too tight.
-`fit` warns when you pass `X` instead of `batches=`.
-
-**Batch size is handled, not assumed.** The charted value is a batch mean, so a
-Shewhart chart would shrink its limits as one over the square root of the batch
-size — which is wrong whenever batches genuinely differ from each other, and
-makes the chart cry wolf on any batch larger than the reference runs. `fit`
-therefore splits each reference batch in half to separate the two components:
-
-```
-var(batch mean of m) = sigma_within^2 / m + sigma_between^2
-```
-
-The between-batch part is common to both halves and cancels in their difference,
-leaving sampling noise; the spread of the batch means carries both. Limits then
-shrink with batch size only as far as real batch effects allow, and stop.
 
 Seven bands on two statistics is fourteen tests at once, so at three sigma a good
 batch throws a single flag roughly once in thirty. A lone breach is a reason to
@@ -345,9 +318,6 @@ tri = Triage(review_rate=0.10).fit(clf, X_train, y_train)   # calibrate on clean
 report = tri.assess(X_new, y_new)                           # per-signal actions
 print(report.action_counts)
 ```
-
-**A prediction can be untrustworthy for two unrelated reasons, and conflating
-them makes the flag useless.**
 
 An **outlier** is a spectrum unlike anything in the training data - wrong
 specimen, contamination, substrate change, a cosmic ray. It lives in input space,
@@ -392,8 +362,8 @@ Four questions, four answers:
   obvious baseline of low predicted probability? Weights for the combination are
   fitted on the calibration data, not chosen by hand.
 
-**The direction is learned, not assumed.** Whether high or low eREDG indicates
-trouble is dataset-dependent - the manuscript says so, and it is - so `fit`
+Whether high or low eREDG indicates
+trouble is dataset-dependent, so `fit`
 determines the sign from calibration labels and records how it did:
 
 ```python
