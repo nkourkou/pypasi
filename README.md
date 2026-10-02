@@ -1,6 +1,6 @@
 # pypasi
 
-**Process-aware signal inference.** Classify 1-D signals by negotiated consensus
+**Process-aware signal inference.** Classify Raman spectroscopy (or any 1-D) signals by negotiated consensus
 among band-level models, then audit *how* the decision was reached: which regions
 of the signal disagreed, how long they held out, and what the raw data looks like
 there.
@@ -526,19 +526,12 @@ Measured on 7 bands, 5 classes, 30 iterations; your numbers will differ, the
 shape will not. Cost per signal is roughly flat for the loop and falls for the
 batched engine, which is what makes cohort-scale auditing practical.
 
-## Continuous integration
-
-`.github/workflows/ci.yml` runs the suite on Python 3.10-3.13 on Linux plus one
-macOS and one Windows job, smoke-tests the CLI, lints with `ruff`, and builds and
-checks the distribution. It is inert until the project is pushed to GitHub.
 
 ## Method
 
 The negotiation, the regimes and the Decision Geometry descriptors follow
-Kourkoumelis, *Process-aware inference of biomedical Raman spectra
-classification*. This package generalises that method beyond Raman spectroscopy
-and beyond nearest-neighbour coupling.
+N. Kourkoumelis, Process-aware inference of biomedical Raman spectra classification, Chemometrics and Intelligent Laboratory Systems 279 (2026) 105914. https://doi.org/10.1016/j.chemolab.2026.105914. This package generalises that method beyond Raman spectroscopy and beyond nearest-neighbour coupling.
 
 ## Licence
 
-MIT.
+MIT
