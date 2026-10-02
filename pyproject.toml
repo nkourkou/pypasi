@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pypasi"
+version = "0.5.3"
+description = "Process-aware, band-resolved inference: classify 1-D signals by negotiated consensus among spectral bands, and audit how the decision was reached."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Nikolaos Kourkoumelis", email = "nkourkou@uoi.gr" }]
+keywords = [
+    "raman", "spectroscopy", "chemometrics", "interpretable machine learning",
+    "uncertainty", "model auditing", "consensus", "decision geometry",
+    "drift detection", "quality control", "batch effects", "calibration transfer",
+    "probability calibration", "model auditing", "statistical process control",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.23",
+    "scipy>=1.9",
+    "pandas>=1.5",
+    "scikit-learn>=1.2",
+]
+
+[project.optional-dependencies]
+viz = ["matplotlib>=3.6"]
+dev = ["pytest>=7", "matplotlib>=3.6"]
+
+[project.scripts]
+pypasi = "pypasi.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/nkourkou/pypasi"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
