@@ -1,6 +1,6 @@
 # pypasi
 
-**Process-aware signal inference.** Classify Raman spectroscopy (or any 1-D) signals by negotiated consensus
+**Process-aware spectral inference.** Classify Raman spectroscopy (or any 1-D) signals by negotiated consensus
 among band-level models, then audit *how* the decision was reached: which regions
 of the signal disagreed, how long they held out, and what the raw data looks like
 there.
