@@ -355,7 +355,7 @@ Four questions, four answers:
   overlap between the two flags. Near zero is the claim.
 - **`conditional`** - does conflict still separate right from wrong *after
   restricting to in-distribution signals*? If it does, it cannot be novelty
-  detection wearing a different hat.
+  detection.
 - **`among_confident`** - the manuscript's actual claim: is a conflicted
   prediction worth flagging *even when the classifier is confident about it*?
 - **`incremental`** and **`risk_coverage`** - does it beat, or add to, the
