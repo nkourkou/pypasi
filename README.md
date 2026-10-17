@@ -7,15 +7,14 @@ there.
 
 Conventional classifiers report a label and a probability. Neither tells you
 whether the prediction came from agreement across the signal or from the forced
-reconciliation of contradictory regions. ** pypasi ** partitions a signal into
+reconciliation of contradictory regions. **pypasi** partitions a signal into
 contiguous bands, gives each its own classifier, and lets those band agents
 negotiate over an interaction graph. The trajectory they take is measurable, and
 it is attributable back to specific regions of the spectrum.
 
 The most direct use is monitoring. A fitted model keeps producing predictions
-long after the data stops looking like what it was trained on, and accuracy —
-which would say so — needs labels you do not have when a new batch arrives.
-`pypasi` charts the band-level quantities the negotiation already produces as
+long after the data stops looking like what it was trained on, and accuracy needs labels you may not have when a new batch arrives. 
+**pypasi** charts the band-level quantities the negotiation already produces as
 process variables and reports **which wavenumber interval left its control
 limits**, with no labels at all.
 
@@ -30,7 +29,7 @@ pip install -e ".[viz]"     # adds matplotlib helpers
 
 Requires Python 3.10+, NumPy, SciPy, pandas and scikit-learn.
 
-## Sixty seconds
+## Time (seconds)
 
 ```bash
 pypasi demo --out results/demo --axis-name "cm-1"
@@ -74,7 +73,7 @@ BandSet.from_edges(axis, [400, 700, 1100, 1800])   # explicit
 `peak_informed` places boundaries between the strongest peaks so that prominent
 features are not split across two agents.
 
-### Any scikit-learn classifier, including chemometric ones
+### Any scikit-learn classifier
 
 ```python
 from pypasi import PLSDA, PCALDA
