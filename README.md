@@ -7,7 +7,7 @@ there.
 
 Conventional classifiers report a label and a probability. Neither tells you
 whether the prediction came from agreement across the signal or from the forced
-reconciliation of contradictory regions. `pypasi` partitions a signal into
+reconciliation of contradictory regions. ** pypasi ** partitions a signal into
 contiguous bands, gives each its own classifier, and lets those band agents
 negotiate over an interaction graph. The trajectory they take is measurable, and
 it is attributable back to specific regions of the spectrum.
