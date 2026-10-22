@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pypasi"
 version = "0.5.3"
-description = "Process-aware, band-resolved inference: classify 1-D signals by negotiated consensus among spectral bands, and audit how the decision was reached."
+description = "Process-aware, band-resolved inference: classify Raman signals (or 1D signals that have meaningful instensity levels) by negotiated consensus among spectral bands, and audit how the decision was reached."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
