@@ -9,7 +9,6 @@ from sklearn.model_selection import cross_val_score
 from sklearn.utils.estimator_checks import check_estimator
 
 from pypasi import BandNegotiationClassifier
-from pypasi.audit import band_importance
 from pypasi.chemometrics import PCALDA, PLSDA, vip_scores
 from pypasi.datasets import make_conflict_signals
 from pypasi.divergence import softmax
@@ -137,8 +136,9 @@ def test_deterministic_estimator_is_fully_sklearn_conformant():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         res = check_estimator(
-            BandNegotiationClassifier(n_bands=3, max_iter=4, temperature=0.0,
-                                      random_state=0),
+            BandNegotiationClassifier(
+                n_bands=3, max_iter=4, temperature=0.0, random_state=0
+            ),
             on_fail=None,
         )
     failed = [r["check_name"] for r in res if r["status"] not in ("passed", "skipped")]
@@ -154,13 +154,16 @@ def test_stochastic_estimator_only_deviates_on_invariance_checks():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         res = check_estimator(
-            BandNegotiationClassifier(n_bands=3, max_iter=4, temperature=0.05,
-                                      random_state=0),
+            BandNegotiationClassifier(
+                n_bands=3, max_iter=4, temperature=0.05, random_state=0
+            ),
             on_fail=None,
         )
     failed = {r["check_name"] for r in res if r["status"] not in ("passed", "skipped")}
-    assert failed <= {"check_methods_subset_invariance",
-                      "check_methods_sample_order_invariance"}, failed
+    assert failed <= {
+        "check_methods_subset_invariance",
+        "check_methods_sample_order_invariance",
+    }, failed
 
 
 @pytest.mark.parametrize("est", [PLSDA(n_components=2), PCALDA(n_components=2)])
@@ -183,8 +186,9 @@ def test_chemometric_estimators_cross_validate(data, est):
 
 def test_band_importance_table(data):
     X, y, axis, _ = data
-    clf = BandNegotiationClassifier(axis=axis, n_bands=7, max_iter=6,
-                                    axis_name="cm-1", random_state=0).fit(X, y)
+    clf = BandNegotiationClassifier(
+        axis=axis, n_bands=7, max_iter=6, axis_name="cm-1", random_state=0
+    ).fit(X, y)
     tbl, per_feature = clf.band_importance(X, y)
     assert len(tbl) == 7
     assert per_feature.shape == (X.shape[1],)
@@ -194,11 +198,13 @@ def test_band_importance_table(data):
 
 def test_band_importance_finds_the_informative_bands(data):
     X, y, axis, spec = data
-    clf = BandNegotiationClassifier(axis=axis, n_bands=7, max_iter=6,
-                                    random_state=0).fit(X, y)
+    clf = BandNegotiationClassifier(
+        axis=axis, n_bands=7, max_iter=6, random_state=0
+    ).fit(X, y)
     tbl, _ = clf.band_importance(X, y)
-    informative = {b.label for b in clf.bands_
-                   if any(b.lo <= c < b.hi for c in spec.informative)}
+    informative = {
+        b.label for b in clf.bands_ if any(b.lo <= c < b.hi for c in spec.informative)
+    }
     top = set(tbl.nlargest(4, "importance_mean")["label"])
     assert informative & top, f"informative bands {informative} missed by {top}"
 
@@ -207,8 +213,9 @@ def test_band_importance_accepts_any_importance_bearing_model(data):
     from sklearn.ensemble import RandomForestClassifier
 
     X, y, axis, _ = data
-    clf = BandNegotiationClassifier(axis=axis, n_bands=5, max_iter=4,
-                                    random_state=0).fit(X, y)
+    clf = BandNegotiationClassifier(
+        axis=axis, n_bands=5, max_iter=4, random_state=0
+    ).fit(X, y)
     tbl, _ = clf.band_importance(
         X, y, estimator=RandomForestClassifier(n_estimators=12, random_state=0)
     )
@@ -219,8 +226,9 @@ def test_band_importance_rejects_models_without_importance(data):
     from sklearn.neighbors import KNeighborsClassifier
 
     X, y, axis, _ = data
-    clf = BandNegotiationClassifier(axis=axis, n_bands=4, max_iter=4,
-                                    random_state=0).fit(X, y)
+    clf = BandNegotiationClassifier(
+        axis=axis, n_bands=4, max_iter=4, random_state=0
+    ).fit(X, y)
     with pytest.raises(TypeError, match="neither feature_importances_"):
         clf.band_importance(X, y, estimator=KNeighborsClassifier())
 
@@ -231,8 +239,9 @@ def test_band_importance_rejects_models_without_importance(data):
 @pytest.fixture(scope="module")
 def fitted_audit(data):
     X, y, axis, _ = data
-    clf = BandNegotiationClassifier(axis=axis, n_bands=7, axis_name="cm-1",
-                                    max_iter=10, random_state=0).fit(X, y)
+    clf = BandNegotiationClassifier(
+        axis=axis, n_bands=7, axis_name="cm-1", max_iter=10, random_state=0
+    ).fit(X, y)
     return clf, clf.audit(X, y)
 
 
@@ -246,12 +255,18 @@ def test_every_figure_renders_in_both_modes(data, fitted_audit, dark, tmp_path):
     clf, audit = fitted_audit
     imp, per_feature = clf.band_importance(X, y)
     comparison = pd.DataFrame(
-        {"regime": ["plain", "H1", "H2"], "accuracy": [0.9, 0.91, 0.89],
-         "DG_mean": [20.0, 26.0, 15.0]}
+        {
+            "regime": ["plain", "H1", "H2"],
+            "accuracy": [0.9, 0.91, 0.89],
+            "DG_mean": [20.0, 26.0, 15.0],
+        }
     )
     curve = pd.DataFrame(
-        {"damage_fraction": [0.0, 0.2, 0.4] * 2, "DG_mean": [20, 26, 31, 15, 19, 23],
-         "regime": ["plain"] * 3 + ["H1"] * 3}
+        {
+            "damage_fraction": [0.0, 0.2, 0.4] * 2,
+            "DG_mean": [20, 26, 31, 15, 19, 23],
+            "regime": ["plain"] * 3 + ["H1"] * 3,
+        }
     )
     figures = [
         viz.plot_bands(clf.bands_, X, y, dark=dark),
@@ -313,13 +328,13 @@ def test_reference_implementation_matches_the_batched_engine():
 
 def test_minority_evidence_is_internally_consistent():
     """A row flagged as dissenting must not show the same class on both sides."""
-    import numpy as np
     from pypasi import BandNegotiationClassifier
     from pypasi.datasets import make_conflict_signals
 
     X, y, axis, *_ = make_conflict_signals(n_samples=400, random_state=0)
-    clf = BandNegotiationClassifier(axis=axis, n_bands=7, regime="H1",
-                                    random_state=0).fit(X, y)
+    clf = BandNegotiationClassifier(
+        axis=axis, n_bands=7, regime="H1", random_state=0
+    ).fit(X, y)
     tbl = clf.audit(X, y).minority_evidence()
     dis = tbl[tbl["dissented"]]
     assert len(dis) > 0
@@ -328,13 +343,33 @@ def test_minority_evidence_is_internally_consistent():
 
 
 def test_minority_evidence_needs_a_gate():
+
     from pypasi import BandNegotiationClassifier
     from pypasi.datasets import make_conflict_signals
-    import pytest as _pytest
 
     X, y, axis, *_ = make_conflict_signals(n_samples=200, random_state=0)
-    clf = BandNegotiationClassifier(axis=axis, n_bands=5, regime="plain",
-                                    random_state=0).fit(X, y)
+    clf = BandNegotiationClassifier(
+        axis=axis, n_bands=5, regime="plain", random_state=0
+    ).fit(X, y)
     audit = clf.audit(X, y)
     tbl = audit.minority_evidence()
     assert tbl.empty or not tbl["dissented"].any()
+
+
+def test_viz_explains_how_to_get_matplotlib(monkeypatch):
+    import builtins
+
+    import pytest
+
+    from pypasi import viz
+
+    real_import = builtins.__import__
+
+    def no_matplotlib(name, *args, **kwargs):
+        if name == "matplotlib" or name.startswith("matplotlib."):
+            raise ImportError("no matplotlib")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_matplotlib)
+    with pytest.raises(ImportError, match=r"pypasi\[viz\]"):
+        viz._figure(False, (2, 2))

@@ -1,4 +1,6 @@
-"""Auditing: The negotiation records which bands disagreed, how long they held out and how
+"""Auditing: from a disputed decision back to the raw signal that caused it.
+
+The negotiation records which bands disagreed, how long they held out and how
 far they travelled. :class:`AuditResult` turns that into tables, and - the part
 that closes the loop - hands back the raw signal region behind any band the
 tables implicate, so a conflict score can be checked against the spectrum it
@@ -8,7 +10,6 @@ came from.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
 
 import numpy as np
 import pandas as pd
@@ -16,7 +17,7 @@ import pandas as pd
 from .bands import Band, BandSet
 from .negotiate import NegotiationResult
 
-__all__ = ["AuditResult", "BandTrace", "compare_regimes", "band_importance"]
+__all__ = ["AuditResult", "BandTrace", "band_importance", "compare_regimes"]
 
 
 def band_importance(
@@ -208,7 +209,9 @@ class AuditResult:
         er, delta = r.eredg(gate_quantile=gate_quantile)
         data = {
             "sample": np.arange(self.n_samples),
-            "y_pred": self.y_pred_labels if self.y_pred_labels is not None else r.y_pred,
+            "y_pred": self.y_pred_labels
+            if self.y_pred_labels is not None
+            else r.y_pred,
             "confidence": r.proba.max(axis=1),
             "DG": r.dg,
             "DG_early": r.dg_early,
@@ -217,7 +220,9 @@ class AuditResult:
             "n_muted_bands": (r.mute_frequency > 0).sum(axis=1),
             "mean_mute_fraction": r.mute_frequency.mean(axis=1),
             "max_band_stress": r.mean_stress.max(axis=1),
-            "worst_band": [self.bands.labels[i] for i in np.argmax(r.mean_stress, axis=1)],
+            "worst_band": [
+                self.bands.labels[i] for i in np.argmax(r.mean_stress, axis=1)
+            ],
         }
         if self.y_true is not None:
             data["y_true"] = self.y_true
@@ -335,18 +340,19 @@ class AuditResult:
         if r.mute_history is None:
             raise RuntimeError(
                 "minority evidence needs the mute history; re-run the audit "
-                "under a regime that uses a gate (H1 or H2)")
+                "under a regime that uses a gate (H1 or H2)"
+            )
 
-        P0 = _softmax(r.logits_initial)                  # (n, bands, classes)
-        band_class = P0.argmax(axis=-1)                  # (n, bands)
-        band_conf = P0.max(axis=-1)                      # (n, bands)
-        consensus = r.y_pred[:, None]                    # (n, 1)
-        muted_any = r.mute_history.any(axis=1)           # (n, bands)
+        P0 = _softmax(r.logits_initial)  # (n, bands, classes)
+        band_class = P0.argmax(axis=-1)  # (n, bands)
+        band_conf = P0.max(axis=-1)  # (n, bands)
+        consensus = r.y_pred[:, None]  # (n, 1)
+        muted_any = r.mute_history.any(axis=1)  # (n, bands)
         dissent = (band_class != consensus) & muted_any
-        if self.classes is not None:
-            to_label = lambda i: self.classes[i]
-        else:
-            to_label = lambda i: i
+        classes = self.classes
+
+        def to_label(i):
+            return classes[i] if classes is not None else i
 
         rows = []
         for k, label in enumerate(self.bands.labels):
@@ -367,23 +373,27 @@ class AuditResult:
             else:
                 supported = consensus_lbl = None
                 support = float(band_conf[muted_any[:, k], k].mean())
-            rows.append({
-                "band": k,
-                "label": label,
-                f"{self.bands.axis_name}_lo": self.bands[k].lo,
-                f"{self.bands.axis_name}_hi": self.bands[k].hi,
-                "supported_class": supported,
-                "consensus_class": consensus_lbl,
-                "dissented": bool(n_dis),
-                "initial_support": support,
-                "mute_frequency": float(r.mute_frequency[:, k].mean()),
-                "n_samples_muted": int(muted_any[:, k].sum()),
-                "n_samples_dissenting": n_dis,
-            })
+            rows.append(
+                {
+                    "band": k,
+                    "label": label,
+                    f"{self.bands.axis_name}_lo": self.bands[k].lo,
+                    f"{self.bands.axis_name}_hi": self.bands[k].hi,
+                    "supported_class": supported,
+                    "consensus_class": consensus_lbl,
+                    "dissented": bool(n_dis),
+                    "initial_support": support,
+                    "mute_frequency": float(r.mute_frequency[:, k].mean()),
+                    "n_samples_muted": int(muted_any[:, k].sum()),
+                    "n_samples_dissenting": n_dis,
+                }
+            )
         out = pd.DataFrame(rows)
         if not out.empty:
-            out = out.sort_values(["dissented", "n_samples_dissenting",
-                                   "initial_support"], ascending=False)
+            out = out.sort_values(
+                ["dissented", "n_samples_dissenting", "initial_support"],
+                ascending=False,
+            )
         return out.reset_index(drop=True)
 
     def top_conflict_bands(self, n: int = 3) -> list[str]:
@@ -404,7 +414,11 @@ class AuditResult:
                 "cumulative_stress": r.cumulative_stress[sample],
                 "mute_frequency": r.mute_frequency[sample],
                 "band_DG": r.band_dg[sample],
-                "initial_weight": (r.weight_history[sample, 0] if r.weight_history is not None else np.nan),
+                "initial_weight": (
+                    r.weight_history[sample, 0]
+                    if r.weight_history is not None
+                    else np.nan
+                ),
                 "final_weight": r.weights_final[sample],
             }
         )
@@ -440,7 +454,10 @@ class AuditResult:
         if self.y_true is not None and sample is None:
             class_labels = np.unique(self.y_true)
             class_means = np.stack(
-                [self.X[self.y_true == c][:, b.features].mean(axis=0) for c in class_labels]
+                [
+                    self.X[self.y_true == c][:, b.features].mean(axis=0)
+                    for c in class_labels
+                ]
             )
 
         conflict = self.conflict_table().set_index("label").loc[b.label]
@@ -474,14 +491,18 @@ class AuditResult:
         self.bands.to_frame().to_csv(paths["bands"], index=False)
         return paths
 
-    def report(self, path: str, *, sample: int | None = None, title: str | None = None) -> str:
+    def report(
+        self, path: str, *, sample: int | None = None, title: str | None = None
+    ) -> str:
         """Write a self-contained interactive HTML audit report. See :mod:`pypasi.report`."""
         from .report import write_report
 
         return write_report(self, path, sample=sample, title=title)
 
 
-def compare_regimes(audits: dict[str, AuditResult], gate_quantile: float = 0.2) -> pd.DataFrame:
+def compare_regimes(
+    audits: dict[str, AuditResult], gate_quantile: float = 0.2
+) -> pd.DataFrame:
     """Side-by-side comparison of several regimes over the same signals.
 
     Parameters
@@ -502,7 +523,9 @@ def compare_regimes(audits: dict[str, AuditResult], gate_quantile: float = 0.2) 
             "DG_mean": float(r.dg.mean()),
             "DG_sd": float(r.dg.std(ddof=1)) if a.n_samples > 1 else 0.0,
             "REDG_mean": float(r.redg.mean()),
-            "eREDG_median": float(np.nanmedian(s["eREDG"])) if s["eREDG"].notna().any() else np.nan,
+            "eREDG_median": float(np.nanmedian(s["eREDG"]))
+            if s["eREDG"].notna().any()
+            else np.nan,
             "mute_fraction": float(r.mute_frequency.mean()),
             "n_collapsed": int(r.collapsed.sum()) if r.collapsed is not None else 0,
             "top_conflict_band": a.top_conflict_bands(1)[0],

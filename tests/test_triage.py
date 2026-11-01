@@ -24,8 +24,11 @@ def cohorts():
         n_samples=600, noise=0.85, signal_strength=0.45, random_state=0
     )
     Xte, yte, _, spec = make_conflict_signals(
-        n_samples=400, noise=0.85, signal_strength=0.45,
-        outlier_rate=0.15, random_state=1
+        n_samples=400,
+        noise=0.85,
+        signal_strength=0.45,
+        outlier_rate=0.15,
+        random_state=1,
     )
     return Xtr, ytr, Xte, yte, axis, spec
 
@@ -83,7 +86,14 @@ def test_assess_produces_one_row_per_signal_and_valid_actions(cohorts, fitted):
     assert set(rep.table["action"]) <= set(ACTIONS)
     assert set(rep.action_counts.index) == set(ACTIONS)
     assert rep.action_counts.sum() == Xte.shape[0]
-    for col in ("novelty", "conflict", "is_novel", "is_conflicted", "reason", "worst_band"):
+    for col in (
+        "novelty",
+        "conflict",
+        "is_novel",
+        "is_conflicted",
+        "reason",
+        "worst_band",
+    ):
         assert col in rep.table.columns
 
 
@@ -113,8 +123,13 @@ def test_novelty_flag_tracks_planted_outliers_not_planted_conflict(cohorts, fitt
     assert novel[spec.outlier].mean() > 0.8, "should catch the strange spectra"
     # and it should not be driven by conflict, which lives elsewhere entirely
     clean = ~spec.outlier
-    assert abs(novel[clean & spec.conflicted].mean()
-               - novel[clean & ~spec.conflicted].mean()) < 0.15
+    assert (
+        abs(
+            novel[clean & spec.conflicted].mean()
+            - novel[clean & ~spec.conflicted].mean()
+        )
+        < 0.15
+    )
 
 
 # ------------------------------------------------------------- orientation
@@ -173,8 +188,15 @@ def test_impossible_review_rate_is_rejected(cohorts, fitted):
 def test_evaluate_returns_the_full_evidence_set(cohorts, fitted):
     Xtr, ytr, Xte, yte, _, _ = cohorts
     ev = Triage(review_rate=0.12).fit(fitted, Xtr, ytr).evaluate(Xte, yte)
-    for key in ("separation", "conditional", "among_confident", "orthogonality",
-                "incremental", "risk_coverage", "summary"):
+    for key in (
+        "separation",
+        "conditional",
+        "among_confident",
+        "orthogonality",
+        "incremental",
+        "risk_coverage",
+        "summary",
+    ):
         assert key in ev, key
     assert len(ev["separation"]) == 3
     assert "1 - confidence" in ev["separation"]["score"].tolist()
@@ -216,13 +238,15 @@ def test_compare_conflict_scores_covers_every_descriptor(cohorts, fitted):
 def test_risk_coverage_shape_and_bookkeeping():
     rng = np.random.default_rng(0)
     wrong = rng.integers(0, 2, 200)
-    score = wrong + rng.normal(0, 0.3, 200)      # a good flag
+    score = wrong + rng.normal(0, 0.3, 200)  # a good flag
     rc = risk_coverage(score, wrong)
     assert rc["coverage"].is_monotonic_decreasing
     assert (rc["n_kept"] <= 200).all()
     assert np.isfinite(rc.attrs["aurc"])
     assert rc.attrs["total_errors"] == int(wrong.sum())
-    assert rc["accuracy"].iloc[0] < rc["accuracy"].iloc[-1], "a good flag lifts accuracy"
+    assert rc["accuracy"].iloc[0] < rc["accuracy"].iloc[-1], (
+        "a good flag lifts accuracy"
+    )
 
 
 def test_risk_coverage_is_flat_for_an_uninformative_flag():
@@ -248,8 +272,12 @@ def test_triage_figures_render(cohorts, fitted, dark, tmp_path):
     tri = Triage(review_rate=0.12).fit(fitted, Xtr, ytr)
     rep = tri.assess(Xte, yte)
     ev = tri.evaluate(Xte, yte)
-    for i, fig in enumerate([viz.plot_triage_map(rep, dark=dark),
-                             viz.plot_risk_coverage(ev["risk_coverage"], dark=dark)]):
+    for i, fig in enumerate(
+        [
+            viz.plot_triage_map(rep, dark=dark),
+            viz.plot_risk_coverage(ev["risk_coverage"], dark=dark),
+        ]
+    ):
         out = tmp_path / f"t{i}_{int(dark)}.png"
         fig.savefig(out, dpi=60)
         assert out.stat().st_size > 1000
@@ -269,15 +297,15 @@ def test_triage_map_works_without_ground_truth(cohorts, fitted, tmp_path):
 
 def test_evaluate_says_why_it_cannot_score_a_perfect_cohort():
     """'Encountered all NA values' is not a usable error message."""
-    import numpy as np
     import pytest as _pytest
+
     from pypasi import BandNegotiationClassifier, Triage
     from pypasi.datasets import make_conflict_signals
 
     X, y, axis, *_ = make_conflict_signals(n_samples=200, random_state=0)
     clf = BandNegotiationClassifier(axis=axis, n_bands=5, random_state=0).fit(X, y)
     tri = Triage().fit(clf, X, y)
-    perfect = clf.predict(X)            # by construction the model is never wrong
+    perfect = clf.predict(X)  # by construction the model is never wrong
     with _pytest.raises(ValueError, match="only one class of outcome"):
         tri.evaluate(X, perfect)
 
@@ -287,6 +315,7 @@ def test_evaluate_says_why_it_cannot_score_a_perfect_cohort():
 
 def _orient_fixture():
     import numpy as np
+
     from pypasi import BandNegotiationClassifier
     from pypasi.datasets import make_conflict_signals
 
@@ -309,8 +338,10 @@ def test_orient_on_uses_the_supplied_target():
 
 
 def test_default_orientation_is_still_the_error_target():
-    import numpy as np
     import warnings as _w
+
+    import numpy as np
+
     from pypasi import Triage
 
     clf, X, y, _ = _orient_fixture()
@@ -327,6 +358,7 @@ def test_default_orientation_is_still_the_error_target():
 
 def test_orient_on_length_is_validated():
     import pytest as _pytest
+
     from pypasi import Triage
 
     clf, X, y, degraded = _orient_fixture()
@@ -338,6 +370,7 @@ def test_a_near_chance_orientation_warns():
     """The failure this exists for: a coin-flip sign silently inverts a descriptor."""
     import numpy as np
     import pytest as _pytest
+
     from pypasi import Triage, WeakOrientationWarning
 
     clf, X, y, _ = _orient_fixture()
@@ -357,8 +390,8 @@ def test_orientation_margin_is_recorded():
 
 def test_flipping_the_target_flips_the_sign_and_the_auroc():
     """Orientation is the whole difference between p and 1-p."""
-    import numpy as np
     from sklearn.metrics import roc_auc_score
+
     from pypasi import Triage
 
     clf, X, y, degraded = _orient_fixture()
@@ -368,4 +401,5 @@ def test_flipping_the_target_flips_the_sign_and_the_auroc():
     ta = a.assess(X, y).table["conflict"].to_numpy()
     tb = b.assess(X, y).table["conflict"].to_numpy()
     assert roc_auc_score(degraded, ta) == pytest.approx(
-        1.0 - roc_auc_score(degraded, tb), abs=1e-9)
+        1.0 - roc_auc_score(degraded, tb), abs=1e-9
+    )

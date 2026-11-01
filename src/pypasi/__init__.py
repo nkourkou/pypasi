@@ -24,6 +24,7 @@ Monitoring a new batch, without labels
 >>> print(profile.check(X_new).summary())                # doctest: +SKIP
 """
 
+from . import degrade, quality
 from .audit import AuditResult, BandTrace, band_importance, compare_regimes
 from .bands import Band, BandSet
 from .chemometrics import PCALDA, PLSDA, vip_scores
@@ -46,61 +47,72 @@ from .geometry import (
     redg,
 )
 from .logits import to_logits
-from .monitor import ControlProfile, ControlReport
+from .monitor import RESIDUAL_STATISTICS, ControlProfile, ControlReport
 from .negotiate import NegotiationResult, negotiate
 from .perturb import perturb_bands
+from .quality import noise_level, noise_limit
 from .regimes import H1, H2, Plain, Regime
 from .topology import Topology
-from .triage import (NoveltyDetector, Triage, WeakOrientationWarning,
-                     compare_conflict_scores, risk_coverage)
+from .triage import (
+    NoveltyDetector,
+    Triage,
+    WeakOrientationWarning,
+    compare_conflict_scores,
+    risk_coverage,
+)
 
-__version__ = "0.5.3"
+__version__ = "0.5.5"
 
 __all__ = [
-    "__version__",
+    "EVIDENCE_KINDS",
+    "H1",
+    "H2",
+    "PCALDA",
+    "PLSDA",
+    "RESIDUAL_STATISTICS",
     "AbsoluteGate",
-    "audit_external",
     "AuditResult",
     "Band",
-    "band_decision_geometry",
-    "band_importance",
     "BandNegotiationClassifier",
     "BandSet",
     "BandTrace",
-    "compare_conflict_scores",
-    "compare_regimes",
     "ControlProfile",
     "ControlReport",
-    "decision_geometry",
-    "early_decision_geometry",
-    "eredg",
-    "EVIDENCE_KINDS",
     "EvidenceSpec",
     "ExternalAudit",
     "Gate",
-    "H1",
-    "H2",
-    "js_divergence",
-    "kl_divergence",
-    "negotiate",
     "NegotiationResult",
     "NoveltyDetector",
-    "PCALDA",
-    "perturb_bands",
     "Plain",
-    "PLSDA",
     "QuantileGate",
     "RankGate",
-    "redg",
     "Regime",
-    "risk_coverage",
-    "softmax",
     "TemperatureCalibrator",
-    "to_evidence",
-    "to_logits",
     "Topology",
     "Triage",
     "UncalibratedEvidenceWarning",
-    "vip_scores",
     "WeakOrientationWarning",
+    "__version__",
+    "audit_external",
+    "band_decision_geometry",
+    "band_importance",
+    "compare_conflict_scores",
+    "compare_regimes",
+    "decision_geometry",
+    "degrade",
+    "early_decision_geometry",
+    "eredg",
+    "js_divergence",
+    "kl_divergence",
+    "negotiate",
+    "noise_level",
+    "noise_limit",
+    "perturb_bands",
+    "quality",
+    "redg",
+    "risk_coverage",
+    "softmax",
+    "to_evidence",
+    "to_logits",
+    "vip_scores",
 ]

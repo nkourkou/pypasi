@@ -29,7 +29,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-__all__ = ["Regime", "Plain", "H1", "H2", "resolve_regime", "REGIMES"]
+__all__ = ["H1", "H2", "REGIMES", "Plain", "Regime", "resolve_regime"]
 
 
 class Regime(ABC):

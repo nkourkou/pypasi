@@ -12,17 +12,23 @@ import warnings
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin, clone
 from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 from sklearn.utils.multiclass import unique_labels
 from sklearn.utils.validation import check_is_fitted, validate_data
 
 from .bands import BandSet
-from .divergence import get_divergence, js_divergence
+from .divergence import get_divergence
 from .evidence import EvidenceSpec, TemperatureCalibrator, to_evidence
-from .gates import Gate, QuantileGate, resolve_gate
+from .gates import QuantileGate, resolve_gate
 from .logits import supports_logits
-from .negotiate import NegotiationResult, band_stress, initial_weights, negotiate, neighbourhood_consensus
+from .negotiate import (
+    NegotiationResult,
+    band_stress,
+    initial_weights,
+    negotiate,
+    neighbourhood_consensus,
+)
 from .regimes import resolve_regime
 from .topology import Topology
 
@@ -200,7 +206,11 @@ class BandNegotiationClassifier(ClassifierMixin, BaseEstimator):
             if not isinstance(self.bands, BandSet):
                 raise TypeError("bands must be a BandSet or None")
             return self.bands
-        axis = np.arange(X.shape[1], dtype=float) if self.axis is None else np.asarray(self.axis, float)
+        axis = (
+            np.arange(X.shape[1], dtype=float)
+            if self.axis is None
+            else np.asarray(self.axis, float)
+        )
         if axis.size != X.shape[1]:
             raise ValueError(
                 f"axis has {axis.size} values but X has {X.shape[1]} features"
@@ -211,22 +221,37 @@ class BandNegotiationClassifier(ClassifierMixin, BaseEstimator):
         n_bands = max(1, min(int(self.n_bands), X.shape[1]))
         if axis.size == 1 or np.ptp(axis) == 0:
             from .bands import Band
-            return BandSet(axis, [Band(0, "B1", float(axis[0]), float(axis[0]),
-                                       np.arange(axis.size))],
-                           axis_name=self.axis_name)
+
+            return BandSet(
+                axis,
+                [Band(0, "B1", float(axis[0]), float(axis[0]), np.arange(axis.size))],
+                axis_name=self.axis_name,
+            )
         if self.band_method == "equal_width":
-            return BandSet.equal_width(axis, n_bands, lo=lo, hi=hi, axis_name=self.axis_name)
+            return BandSet.equal_width(
+                axis, n_bands, lo=lo, hi=hi, axis_name=self.axis_name
+            )
         if self.band_method == "peak_informed":
-            return BandSet.peak_informed(axis, X, n_bands, lo=lo, hi=hi, axis_name=self.axis_name)
+            return BandSet.peak_informed(
+                axis, X, n_bands, lo=lo, hi=hi, axis_name=self.axis_name
+            )
         raise ValueError(
             f"unknown band_method {self.band_method!r}; use 'equal_width' or 'peak_informed'"
         )
 
     def fit(self, X, y):
         """Fit one base learner per band and calibrate the conflict gate."""
-        X, y = validate_data(self, X, y, accept_sparse=False, dtype="numeric",
-                             ensure_min_samples=2, ensure_min_features=1,
-                             multi_output=False, y_numeric=False)
+        X, y = validate_data(
+            self,
+            X,
+            y,
+            accept_sparse=False,
+            dtype="numeric",
+            ensure_min_samples=2,
+            ensure_min_features=1,
+            multi_output=False,
+            y_numeric=False,
+        )
         X = np.asarray(X, dtype=float)
         self.classes_ = unique_labels(y)
         if self.classes_.size < 2:
@@ -238,7 +263,11 @@ class BandNegotiationClassifier(ClassifierMixin, BaseEstimator):
         self._divergence_ = get_divergence(self.divergence)
         self._regime_ = resolve_regime(self.regime, alpha=self.alpha)
 
-        base = _default_base_estimator() if self.base_estimator is None else self.base_estimator
+        base = (
+            _default_base_estimator()
+            if self.base_estimator is None
+            else self.base_estimator
+        )
         if not supports_logits(base):
             raise TypeError(
                 f"{type(base).__name__} exposes neither decision_function nor "
@@ -281,8 +310,9 @@ class BandNegotiationClassifier(ClassifierMixin, BaseEstimator):
 
     def _raw_evidence_spec(self, X_probe: np.ndarray) -> EvidenceSpec:
         band = self.bands_[0]
-        _, spec = to_evidence(self.band_estimators_[0],
-                              X_probe[:, band.features], self.classes_.size)
+        _, spec = to_evidence(
+            self.band_estimators_[0], X_probe[:, band.features], self.classes_.size
+        )
         return spec
 
     def _calibration_mode(self) -> str | None:
@@ -298,12 +328,18 @@ class BandNegotiationClassifier(ClassifierMixin, BaseEstimator):
             # An exact log-odds needs no repair, and fitting one anyway would
             # spend data to learn T = 1.
             from .evidence import evidence_kind
-            base = _default_base_estimator() if self.base_estimator is None else self.base_estimator
+
+            base = (
+                _default_base_estimator()
+                if self.base_estimator is None
+                else self.base_estimator
+            )
             kind, _ = evidence_kind(base)
             return None if kind == "exact_logit" else "shared"
         raise ValueError(
             f"unknown calibration {c!r}; use 'auto', 'always', 'temperature', "
-            "'per_band' or None")
+            "'per_band' or None"
+        )
 
     def _calibration_split(self, X, y_idx):
         """Split off held-out data for the temperature, or return the lot unsplit."""
@@ -327,12 +363,18 @@ class BandNegotiationClassifier(ClassifierMixin, BaseEstimator):
                 f"smallest class: too few to hold out a calibration split, so "
                 f"band evidence is left on its native scale. Pass "
                 f"calibration_data=(X, y) to calibrate anyway.",
-                UserWarning, stacklevel=3)
+                UserWarning,
+                stacklevel=3,
+            )
             return X, y_idx, None, None
         from sklearn.model_selection import train_test_split
+
         idx_fit, idx_cal = train_test_split(
-            np.arange(len(X)), test_size=frac, stratify=y_idx,
-            random_state=self._seed() or 0)
+            np.arange(len(X)),
+            test_size=frac,
+            stratify=y_idx,
+            random_state=self._seed() or 0,
+        )
         return X[idx_fit], y_idx[idx_fit], X[idx_cal], y_idx[idx_cal]
 
     def _seed(self):
@@ -364,6 +406,55 @@ class BandNegotiationClassifier(ClassifierMixin, BaseEstimator):
         what scale the values are on.
         """
         return self._band_logits(X)
+
+    def band_accuracy(self, X, y, *, alpha: float = 0.01):
+        """How well each band classifies on its own, before any negotiation.
+
+        The audit needs class information in every band: a band whose own model
+        is at chance has nothing to disagree about, and its conflict is noise.
+        Run this on held-out spectra before relying on a partition, and merge or
+        drop bands that are not above chance. Biomedical fingerprint spectra
+        usually pass, because their class information is spread across the
+        range; spectra whose information sits in a few sharp peaks may not.
+
+        Parameters
+        ----------
+        X, y
+            Held-out spectra, preprocessed as for :meth:`predict`, and labels.
+        alpha
+            Significance level of the one-sided binomial test against chance.
+
+        Returns
+        -------
+        pandas.DataFrame
+            One row per band: label, interval, number of channels, accuracy,
+            chance (the majority-class rate of ``y``), the binomial p-value and
+            ``above_chance``.
+        """
+        import pandas as pd
+        from scipy.stats import binomtest
+
+        check_is_fitted(self, "classes_")
+        y = np.asarray(y)
+        pred = self.classes_[self.band_logits(X).argmax(axis=2)]
+        chance = float(max(np.mean(y == c) for c in np.unique(y)))
+        rows = []
+        for j, b in enumerate(self.bands_.bands):
+            hits = int((pred[:, j] == y).sum())
+            p = binomtest(hits, len(y), chance, alternative="greater").pvalue
+            rows.append(
+                {
+                    "band": b.label,
+                    "lo": b.lo,
+                    "hi": b.hi,
+                    "n_features": b.n_features,
+                    "accuracy": hits / len(y),
+                    "chance": chance,
+                    "p_value": float(p),
+                    "above_chance": bool(p < alpha),
+                }
+            )
+        return pd.DataFrame(rows)
 
     @property
     def evidence_report(self):
@@ -397,7 +488,9 @@ class BandNegotiationClassifier(ClassifierMixin, BaseEstimator):
 
     # -------------------------------------------------------------- predict
 
-    def negotiate(self, X, *, regime=None, record_trajectory: bool = True, **kwargs) -> NegotiationResult:
+    def negotiate(
+        self, X, *, regime=None, record_trajectory: bool = True, **kwargs
+    ) -> NegotiationResult:
         """Run the negotiation on ``X`` and return the full result.
 
         ``regime`` overrides the configured one, which is how batch comparisons
@@ -405,7 +498,11 @@ class BandNegotiationClassifier(ClassifierMixin, BaseEstimator):
         """
         check_is_fitted(self, "band_estimators_")
         logits = self._band_logits(X)
-        reg = self._regime_ if regime is None else resolve_regime(regime, alpha=self.alpha)
+        reg = (
+            self._regime_
+            if regime is None
+            else resolve_regime(regime, alpha=self.alpha)
+        )
         params = dict(
             topology=self.topology_,
             regime=reg,
@@ -435,8 +532,10 @@ class BandNegotiationClassifier(ClassifierMixin, BaseEstimator):
         """Aggregated class evidence, before the softmax."""
         res = self.negotiate(X, record_trajectory=False)
         w = res.weights_final
-        l = np.einsum("nk,nkc->nc", w, res.logits_final) / (w.sum(axis=1)[:, None] + 1e-12)
-        return l[:, 1] - l[:, 0] if self.classes_.size == 2 else l
+        pooled = np.einsum("nk,nkc->nc", w, res.logits_final) / (
+            w.sum(axis=1)[:, None] + 1e-12
+        )
+        return pooled[:, 1] - pooled[:, 0] if self.classes_.size == 2 else pooled
 
     # ---------------------------------------------------------------- audit
 
@@ -445,7 +544,13 @@ class BandNegotiationClassifier(ClassifierMixin, BaseEstimator):
         from .audit import AuditResult
 
         res = self.negotiate(X, record_trajectory=True, **kwargs)
-        return AuditResult(res, self.bands_, X=np.asarray(X, dtype=float), y_true=y, classes=self.classes_)
+        return AuditResult(
+            res,
+            self.bands_,
+            X=np.asarray(X, dtype=float),
+            y_true=y,
+            classes=self.classes_,
+        )
 
     def band_importance(self, X, y, estimator=None, **kwargs):
         """Per-band discriminative importance, see :func:`pypasi.audit.band_importance`.

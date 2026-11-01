@@ -1,6 +1,6 @@
 """Command-line interface.
 
-Εntry points::
+Three entry points::
 
     pypasi demo   --out results/demo
     pypasi run    --x X.npy --y y.npy --axis axis.npy --out results/mine
@@ -55,8 +55,10 @@ def _run_workflow(args, X_train, y_train, X_eval, y_eval, axis, label: str) -> i
         max_iter=args.max_iter,
         random_state=args.seed,
     )
-    print(f"fitting {label}: {X_train.shape[0]} signals, {X_train.shape[1]} points, "
-          f"{np.unique(y_train).size} classes")
+    print(
+        f"fitting {label}: {X_train.shape[0]} signals, {X_train.shape[1]} points, "
+        f"{np.unique(y_train).size} classes"
+    )
     clf.fit(X_train, y_train)
     print(f"  bands      {', '.join(clf.bands_.labels)}")
     print(f"  topology   {clf.topology_}")
@@ -77,7 +79,9 @@ def _run_workflow(args, X_train, y_train, X_eval, y_eval, axis, label: str) -> i
         worst = np.argsort(primary.result.dg)[::-1][:n]
         for i in worst:
             written.append(
-                Path(primary.report(str(out / f"{label}_signal{i}.html"), sample=int(i)))
+                Path(
+                    primary.report(str(out / f"{label}_signal{i}.html"), sample=int(i))
+                )
             )
 
     if getattr(args, "monitor", False):
@@ -86,7 +90,9 @@ def _run_workflow(args, X_train, y_train, X_eval, y_eval, axis, label: str) -> i
     if getattr(args, "triage", False):
         written += _run_triage(args, clf, X_train, y_train, X_eval, y_eval, out, label)
 
-    print(f"\ntop conflict bands ({args.regime}): {', '.join(primary.top_conflict_bands(3))}")
+    print(
+        f"\ntop conflict bands ({args.regime}): {', '.join(primary.top_conflict_bands(3))}"
+    )
     print(f"\nwrote {len(written)} files to {out}/")
     for p in written:
         print(f"  {p.name}")
@@ -109,14 +115,22 @@ def _run_monitor(args, clf, X_train, y_train, X_eval, out, label):
     from .monitor import ControlProfile
 
     X_ref_fit, X_ref, y_ref_fit, _ = train_test_split(
-        X_train, y_train, test_size=0.25, stratify=y_train, random_state=args.seed)
+        X_train, y_train, test_size=0.25, stratify=y_train, random_state=args.seed
+    )
     monitored = clone(clf).fit(X_ref_fit, y_ref_fit)
-    print(f"\nbuilding a control profile: model refitted on {X_ref_fit.shape[0]} "
-          f"spectra, limits from {X_ref.shape[0]} it has never seen")
+    print(
+        f"\nbuilding a control profile: model refitted on {X_ref_fit.shape[0]} "
+        f"spectra, limits from {X_ref.shape[0]} it has never seen"
+    )
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        profile = ControlProfile.fit(monitored, X_ref, n_batches=args.monitor_batches,
-                                     laser_nm=args.laser_nm, random_state=args.seed)
+        profile = ControlProfile.fit(
+            monitored,
+            X_ref,
+            n_batches=args.monitor_batches,
+            laser_nm=args.laser_nm,
+            random_state=args.seed,
+        )
         for w in caught:
             print(f"  note: {w.message}")
     print(f"  {profile}")
@@ -124,23 +138,35 @@ def _run_monitor(args, clf, X_train, y_train, X_eval, out, label):
     report = profile.check(X_eval, name=f"{label} evaluation cohort")
     print("\n" + report.summary())
     if not report.is_in_control:
-        cols = ["statistic", "label", f"{profile.axis_name_}_lo",
-                f"{profile.axis_name_}_hi", "value", "centre", "z"]
+        cols = [
+            "statistic",
+            "label",
+            f"{profile.axis_name_}_lo",
+            f"{profile.axis_name_}_hi",
+            "value",
+            "centre",
+            "z",
+        ]
         print("\n" + report.out_of_control[cols].round(5).to_string(index=False))
 
-    written = [out / f"{label}_control_limits.csv", out / f"{label}_control_check.csv",
-               out / f"{label}_control_profile.json"]
+    written = [
+        out / f"{label}_control_limits.csv",
+        out / f"{label}_control_check.csv",
+        out / f"{label}_control_profile.json",
+    ]
     profile.to_frame().to_csv(written[0], index=False)
     report.to_csv(written[1])
     profile.save(written[2])
 
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         from . import viz
 
         viz.plot_control_chart(report).savefig(
-            out / f"{label}_control_chart.png", dpi=150, bbox_inches="tight")
+            out / f"{label}_control_chart.png", dpi=150, bbox_inches="tight"
+        )
         written.append(out / f"{label}_control_chart.png")
     except ImportError:
         print("  (matplotlib not installed - skipping the control chart)")
@@ -152,8 +178,9 @@ def _run_triage(args, clf, X_train, y_train, X_eval, y_eval, out, label):
     from .triage import Triage, compare_conflict_scores
 
     print("\ncalibrating triage policy")
-    tri = Triage(conflict_score=args.conflict_score,
-                 review_rate=args.review_rate).fit(clf, X_train, y_train)
+    tri = Triage(conflict_score=args.conflict_score, review_rate=args.review_rate).fit(
+        clf, X_train, y_train
+    )
     print(f"  conflict direction: {tri.orientation_source_}")
     report = tri.assess(X_eval, y_eval)
     print("  actions:", {k: int(v) for k, v in report.action_counts.items()})
@@ -170,17 +197,22 @@ def _run_triage(args, clf, X_train, y_train, X_eval, y_eval, out, label):
         ev = tri.evaluate(X_eval, y_eval)
         print("\n" + ev["separation"].round(3).to_string(index=False))
         o = ev["orthogonality"]
-        print(f"\n  novelty vs conflict: Spearman rho {o['spearman_rho']:+.3f}, "
-              f"flag overlap {o['jaccard_overlap']:.3f}")
-        print(f"  {o['n_novel_only']} novel only, {o['n_conflicted_only']} conflicted only, "
-              f"{o['n_both']} both")
+        print(
+            f"\n  novelty vs conflict: Spearman rho {o['spearman_rho']:+.3f}, "
+            f"flag overlap {o['jaccard_overlap']:.3f}"
+        )
+        print(
+            f"  {o['n_novel_only']} novel only, {o['n_conflicted_only']} conflicted only, "
+            f"{o['n_both']} both"
+        )
         print("\n  is the conflict flag worth having?")
         for k, v in ev["summary"].items():
             print(f"    {k:38s} {v}")
         ev["risk_coverage"].to_csv(out / f"{label}_risk_coverage.csv", index=False)
         written.append(out / f"{label}_risk_coverage.csv")
-        table = compare_conflict_scores(clf, X_train, y_train, X_eval, y_eval,
-                                        review_rate=args.review_rate)
+        table = compare_conflict_scores(
+            clf, X_train, y_train, X_eval, y_eval, review_rate=args.review_rate
+        )
         table.to_csv(paths["scores"], index=False)
         written.append(paths["scores"])
         print("\n  every conflict descriptor, compared:\n")
@@ -188,31 +220,41 @@ def _run_triage(args, clf, X_train, y_train, X_eval, y_eval, out, label):
 
         try:
             import matplotlib
+
             matplotlib.use("Agg")
             from . import viz
 
             viz.plot_triage_map(report).savefig(
-                out / f"{label}_triage_map.png", dpi=150, bbox_inches="tight")
+                out / f"{label}_triage_map.png", dpi=150, bbox_inches="tight"
+            )
             viz.plot_risk_coverage(ev["risk_coverage"]).savefig(
-                out / f"{label}_risk_coverage.png", dpi=150, bbox_inches="tight")
-            written += [out / f"{label}_triage_map.png",
-                        out / f"{label}_risk_coverage.png"]
+                out / f"{label}_risk_coverage.png", dpi=150, bbox_inches="tight"
+            )
+            written += [
+                out / f"{label}_triage_map.png",
+                out / f"{label}_risk_coverage.png",
+            ]
         except ImportError:
             print("  (matplotlib not installed - skipping triage figures)")
     return written
 
 
 def _cmd_demo(args) -> int:
-    from .datasets import make_conflict_signals
     from sklearn.model_selection import train_test_split
 
+    from .datasets import make_conflict_signals
+
     X, y, axis, spec = make_conflict_signals(
-        n_samples=args.n_samples, noise=args.noise, signal_strength=0.45,
-        random_state=args.seed
+        n_samples=args.n_samples,
+        noise=args.noise,
+        signal_strength=0.45,
+        random_state=args.seed,
     )
-    print(f"synthetic signals with conflict planted at "
-          f"{', '.join(f'{c:g}' for c in spec.conflicting)} {args.axis_name} "
-          f"({spec.conflicted.mean():.0%} of signals)")
+    print(
+        f"synthetic signals with conflict planted at "
+        f"{', '.join(f'{c:g}' for c in spec.conflicting)} {args.axis_name} "
+        f"({spec.conflicted.mean():.0%} of signals)"
+    )
     Xtr, Xte, ytr, yte = train_test_split(
         X, y, test_size=0.4, stratify=y, random_state=args.seed
     )
@@ -243,7 +285,7 @@ def _cmd_bacteria(args) -> int:
     print(data)
     args.axis_name = "cm-1"
     if args.laser_nm is None:
-        args.laser_nm = 633.0          # Ho et al. excitation
+        args.laser_nm = 633.0  # Ho et al. excitation
     if args.band_range is None:
         args.band_range = [400.0, min(1800.0, float(data.axis.max()))]
     return _run_workflow(
@@ -254,32 +296,61 @@ def _cmd_bacteria(args) -> int:
 def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--out", default="pypasi_results", help="output directory")
     p.add_argument("--n-bands", type=int, default=7, help="number of macro-bands")
-    p.add_argument("--band-method", default="equal_width",
-                   choices=["equal_width", "peak_informed"])
-    p.add_argument("--band-range", type=float, nargs=2, default=None,
-                   metavar=("LO", "HI"), help="axis limits for band construction")
+    p.add_argument(
+        "--band-method", default="equal_width", choices=["equal_width", "peak_informed"]
+    )
+    p.add_argument(
+        "--band-range",
+        type=float,
+        nargs=2,
+        default=None,
+        metavar=("LO", "HI"),
+        help="axis limits for band construction",
+    )
     p.add_argument("--axis-name", default="axis", help="axis units, e.g. cm-1")
-    p.add_argument("--topology", default="chain",
-                   choices=["chain", "complete", "knn"])
+    p.add_argument("--topology", default="chain", choices=["chain", "complete", "knn"])
     p.add_argument("--regime", default="H1", choices=["plain", "H1", "H2"])
     p.add_argument("--max-iter", type=int, default=30)
-    p.add_argument("--n-reports", type=int, default=3,
-                   help="per-signal HTML reports to write, highest DG first")
-    p.add_argument("--monitor", action="store_true",
-                   help="learn control limits on the training cohort and chart the "
-                        "evaluation cohort against them, without using its labels")
-    p.add_argument("--monitor-batches", type=int, default=20,
-                   help="reference batches carved from the training cohort")
-    p.add_argument("--laser-nm", type=float, default=None,
-                   help="excitation wavelength, so bands also report where they "
-                        "fall on the detector")
-    p.add_argument("--triage", action="store_true",
-                   help="also calibrate a quality-control policy and test whether "
-                        "the conflict flag adds anything to model confidence")
-    p.add_argument("--review-rate", type=float, default=0.10,
-                   help="share of signals the conflict flag should send for review")
-    p.add_argument("--conflict-score", default="eredg",
-                   choices=["eredg", "dg", "stress", "mute"])
+    p.add_argument(
+        "--n-reports",
+        type=int,
+        default=3,
+        help="per-signal HTML reports to write, highest DG first",
+    )
+    p.add_argument(
+        "--monitor",
+        action="store_true",
+        help="learn control limits on the training cohort and chart the "
+        "evaluation cohort against them, without using its labels",
+    )
+    p.add_argument(
+        "--monitor-batches",
+        type=int,
+        default=20,
+        help="reference batches carved from the training cohort",
+    )
+    p.add_argument(
+        "--laser-nm",
+        type=float,
+        default=None,
+        help="excitation wavelength, so bands also report where they "
+        "fall on the detector",
+    )
+    p.add_argument(
+        "--triage",
+        action="store_true",
+        help="also calibrate a quality-control policy and test whether "
+        "the conflict flag adds anything to model confidence",
+    )
+    p.add_argument(
+        "--review-rate",
+        type=float,
+        default=0.10,
+        help="share of signals the conflict flag should send for review",
+    )
+    p.add_argument(
+        "--conflict-score", default="eredg", choices=["eredg", "dg", "stress", "mute"]
+    )
     p.add_argument("--seed", type=int, default=0)
 
 
@@ -293,8 +364,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     d = sub.add_parser("demo", help="run on synthetic signals with planted conflict")
     d.add_argument("--n-samples", type=int, default=600)
-    d.add_argument("--noise", type=float, default=0.85,
-                   help="signal noise; higher makes the task harder and produces\nthe errors eREDG needs in order to be scored")
+    d.add_argument(
+        "--noise",
+        type=float,
+        default=0.85,
+        help="signal noise; higher makes the task harder and produces\nthe errors eREDG needs in order to be scored",
+    )
     _add_common(d)
     d.set_defaults(func=_cmd_demo)
 
@@ -311,8 +386,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     b = sub.add_parser("bacteria", help="run the Ho et al. bacteria/yeast benchmark")
     b.add_argument("--data-dir", required=True, help="directory holding the .npy files")
-    b.add_argument("--subsample", type=int, default=None,
-                   help="cap signals per cohort, for quick iteration")
+    b.add_argument(
+        "--subsample",
+        type=int,
+        default=None,
+        help="cap signals per cohort, for quick iteration",
+    )
     _add_common(b)
     b.set_defaults(func=_cmd_bacteria)
     return parser

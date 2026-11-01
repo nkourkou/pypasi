@@ -14,9 +14,9 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.svm import LinearSVC
 
 from pypasi import (
-    BandNegotiationClassifier,
     PCALDA,
     PLSDA,
+    BandNegotiationClassifier,
     TemperatureCalibrator,
     UncalibratedEvidenceWarning,
     to_evidence,
@@ -57,7 +57,9 @@ def test_evidence_kind_is_identified(cohort, factory, expected):
 def test_sgd_kind_depends_on_the_loss(cohort):
     X, y, _ = cohort
     assert evidence_kind(SGDClassifier(loss="log_loss").fit(X, y))[0] == "exact_logit"
-    assert evidence_kind(SGDClassifier(loss="hinge").fit(X, y))[0] == "uncalibrated_score"
+    assert (
+        evidence_kind(SGDClassifier(loss="hinge").fit(X, y))[0] == "uncalibrated_score"
+    )
 
 
 def test_pipeline_is_unwrapped_to_its_terminal_step(cohort):
@@ -138,8 +140,9 @@ def test_wrong_class_count_is_caught(cohort):
 
 
 def _band_logits(X, y, factory, n_bands=5):
-    clf = BandNegotiationClassifier(n_bands=n_bands, base_estimator=factory(),
-                                    calibration=None, random_state=0).fit(X, y)
+    clf = BandNegotiationClassifier(
+        n_bands=n_bands, base_estimator=factory(), calibration=None, random_state=0
+    ).fit(X, y)
     return clf.band_logits(X), np.searchsorted(clf.classes_, y)
 
 
@@ -169,10 +172,12 @@ def test_an_exact_logit_is_not_the_same_as_a_calibrated_one(cohort):
 
 def test_always_calibrates_even_an_exact_logit(cohort):
     X, y, axis = cohort
-    auto = BandNegotiationClassifier(axis=axis, n_bands=5, calibration="auto",
-                                     random_state=0).fit(X, y)
-    always = BandNegotiationClassifier(axis=axis, n_bands=5, calibration="always",
-                                       random_state=0).fit(X, y)
+    auto = BandNegotiationClassifier(
+        axis=axis, n_bands=5, calibration="auto", random_state=0
+    ).fit(X, y)
+    always = BandNegotiationClassifier(
+        axis=axis, n_bands=5, calibration="always", random_state=0
+    ).fit(X, y)
     assert auto.calibrator_ is None
     assert always.calibrator_ is not None
 
@@ -222,17 +227,22 @@ def test_bad_mode_is_rejected():
 
 def test_auto_calibration_is_a_no_op_for_exact_logits(cohort):
     X, y, axis = cohort
-    clf = BandNegotiationClassifier(axis=axis, n_bands=5, calibration="auto",
-                                    random_state=0).fit(X, y)
+    clf = BandNegotiationClassifier(
+        axis=axis, n_bands=5, calibration="auto", random_state=0
+    ).fit(X, y)
     assert clf.calibrator_ is None
     assert clf.evidence_report.iloc[0]["kind"] == "exact_logit"
 
 
 def test_auto_calibration_fires_for_a_score_scale(cohort):
     X, y, axis = cohort
-    clf = BandNegotiationClassifier(axis=axis, n_bands=5,
-                                    base_estimator=PLSDA(n_components=4),
-                                    calibration="auto", random_state=0).fit(X, y)
+    clf = BandNegotiationClassifier(
+        axis=axis,
+        n_bands=5,
+        base_estimator=PLSDA(n_components=4),
+        calibration="auto",
+        random_state=0,
+    ).fit(X, y)
     assert clf.calibrator_ is not None
     assert clf.evidence_report.iloc[0]["kind"] == "calibrated_log_proba"
 
@@ -240,31 +250,45 @@ def test_auto_calibration_fires_for_a_score_scale(cohort):
 def test_calibration_none_reproduces_0_4_behaviour(cohort):
     """The migration guarantee: opting out must give the old numbers back."""
     X, y, axis = cohort
-    kw = dict(axis=axis, n_bands=5, base_estimator=PLSDA(n_components=4),
-              random_state=0)
+    kw = dict(
+        axis=axis, n_bands=5, base_estimator=PLSDA(n_components=4), random_state=0
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         off = BandNegotiationClassifier(calibration=None, **kw).fit(X, y)
     L = off.band_logits(X)
-    raw = np.stack([to_logits(est, X[:, b.features], off.classes_.size)
-                    for est, b in zip(off.band_estimators_, off.bands_)], axis=1)
+    raw = np.stack(
+        [
+            to_logits(est, X[:, b.features], off.classes_.size)
+            for est, b in zip(off.band_estimators_, off.bands_)
+        ],
+        axis=1,
+    )
     np.testing.assert_allclose(L, raw - raw.mean(-1, keepdims=True), atol=1e-10)
 
 
 def test_calibration_none_warns_about_the_scale(cohort):
     X, y, axis = cohort
     with pytest.warns(UncalibratedEvidenceWarning):
-        BandNegotiationClassifier(axis=axis, n_bands=5,
-                                  base_estimator=PLSDA(n_components=4),
-                                  calibration=None, random_state=0).fit(X, y)
+        BandNegotiationClassifier(
+            axis=axis,
+            n_bands=5,
+            base_estimator=PLSDA(n_components=4),
+            calibration=None,
+            random_state=0,
+        ).fit(X, y)
 
 
 def test_explicit_calibration_data_is_used(cohort):
     X, y, axis = cohort
     clf = BandNegotiationClassifier(
-        axis=axis, n_bands=5, base_estimator=PLSDA(n_components=4),
-        calibration="temperature", calibration_data=(X[:120], y[:120]),
-        random_state=0).fit(X[120:], y[120:])
+        axis=axis,
+        n_bands=5,
+        base_estimator=PLSDA(n_components=4),
+        calibration="temperature",
+        calibration_data=(X[:120], y[:120]),
+        random_state=0,
+    ).fit(X[120:], y[120:])
     assert clf.calibrator_ is not None
     # nothing was held back from fitting, because calibration data was supplied
     assert clf.band_estimators_[0].pls_.x_scores_.shape[0] == len(X) - 120
@@ -273,43 +297,51 @@ def test_explicit_calibration_data_is_used(cohort):
 def test_too_few_samples_to_split_warns_and_skips_calibration():
     X, y, axis, *_ = make_conflict_signals(n_samples=8, random_state=0)
     with pytest.warns(UserWarning, match="too few to hold out"):
-        clf = BandNegotiationClassifier(axis=axis, n_bands=3,
-                                        base_estimator=PLSDA(n_components=2),
-                                        calibration="temperature",
-                                        random_state=0).fit(X, y)
+        clf = BandNegotiationClassifier(
+            axis=axis,
+            n_bands=3,
+            base_estimator=PLSDA(n_components=2),
+            calibration="temperature",
+            random_state=0,
+        ).fit(X, y)
     assert clf.calibrator_ is None
 
 
 def test_bad_calibration_option_is_rejected(cohort):
     X, y, axis = cohort
     with pytest.raises(ValueError, match="unknown calibration"):
-        BandNegotiationClassifier(axis=axis, n_bands=3,
-                                  calibration="platt", random_state=0).fit(X, y)
+        BandNegotiationClassifier(
+            axis=axis, n_bands=3, calibration="platt", random_state=0
+        ).fit(X, y)
 
 
 def test_bad_calibration_split_is_rejected(cohort):
     X, y, axis = cohort
     with pytest.raises(ValueError, match="calibration_split"):
-        BandNegotiationClassifier(axis=axis, n_bands=3,
-                                  base_estimator=PLSDA(n_components=4),
-                                  calibration="temperature",
-                                  calibration_split=1.5, random_state=0).fit(X, y)
+        BandNegotiationClassifier(
+            axis=axis,
+            n_bands=3,
+            base_estimator=PLSDA(n_components=4),
+            calibration="temperature",
+            calibration_split=1.5,
+            random_state=0,
+        ).fit(X, y)
 
 
 def test_calibrated_model_still_classifies(cohort):
     X, y, axis = cohort
-    clf = BandNegotiationClassifier(axis=axis, n_bands=5,
-                                    base_estimator=PLSDA(n_components=4),
-                                    random_state=0).fit(X, y)
+    clf = BandNegotiationClassifier(
+        axis=axis, n_bands=5, base_estimator=PLSDA(n_components=4), random_state=0
+    ).fit(X, y)
     assert clf.predict(X).shape == (len(X),)
     assert clf.predict_proba(X).shape == (len(X), clf.classes_.size)
 
 
 def test_evidence_report_is_one_row(cohort):
     X, y, axis = cohort
-    clf = BandNegotiationClassifier(axis=axis, n_bands=5,
-                                    base_estimator=PLSDA(n_components=4),
-                                    random_state=0).fit(X, y)
+    clf = BandNegotiationClassifier(
+        axis=axis, n_bands=5, base_estimator=PLSDA(n_components=4), random_state=0
+    ).fit(X, y)
     rep = clf.evidence_report
     assert len(rep) == 1
     assert rep.iloc[0]["is_probabilistic"]

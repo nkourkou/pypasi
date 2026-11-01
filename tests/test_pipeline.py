@@ -14,7 +14,6 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 
 from pypasi import (
-    AbsoluteGate,
     BandNegotiationClassifier,
     BandSet,
     QuantileGate,
@@ -70,10 +69,12 @@ def test_get_params_and_clone_roundtrip(data):
 
 def test_works_inside_a_sklearn_pipeline(data):
     X, y, axis, _ = data
-    pipe = Pipeline([
-        ("scale", StandardScaler()),
-        ("pasi", BandNegotiationClassifier(axis=axis, n_bands=5, random_state=0)),
-    ])
+    pipe = Pipeline(
+        [
+            ("scale", StandardScaler()),
+            ("pasi", BandNegotiationClassifier(axis=axis, n_bands=5, random_state=0)),
+        ]
+    )
     pipe.fit(X, y)
     assert pipe.predict(X).shape == y.shape
 
@@ -86,11 +87,14 @@ def test_works_with_cross_val_score(data):
     assert np.all(scores > 0.4)
 
 
-@pytest.mark.parametrize("base", [
-    RandomForestClassifier(n_estimators=12, random_state=0),   # predict_proba only
-    GaussianNB(),                                             # predict_proba only
-    SVC(kernel="linear", random_state=0),                     # decision_function only
-])
+@pytest.mark.parametrize(
+    "base",
+    [
+        RandomForestClassifier(n_estimators=12, random_state=0),  # predict_proba only
+        GaussianNB(),  # predict_proba only
+        SVC(kernel="linear", random_state=0),  # decision_function only
+    ],
+)
 def test_arbitrary_sklearn_base_estimators(data, base):
     X, y, axis, _ = data
     clf = BandNegotiationClassifier(
@@ -150,8 +154,17 @@ def test_conflict_table_shape_and_columns(data, fitted):
     X, y, _, _ = data
     t = fitted.audit(X, y).conflict_table()
     assert len(t) == 7
-    for col in ("label", "cm-1_lo", "cm-1_hi", "band_confidence", "mean_stress",
-                "informed_conflict", "mute_frequency", "band_DG", "conflict_rank"):
+    for col in (
+        "label",
+        "cm-1_lo",
+        "cm-1_hi",
+        "band_confidence",
+        "mean_stress",
+        "informed_conflict",
+        "mute_frequency",
+        "band_DG",
+        "conflict_rank",
+    ):
         assert col in t.columns, col
     assert t["conflict_rank"].notna().all()
 
@@ -252,7 +265,13 @@ def test_compare_regimes_covers_all_three(data, fitted):
     assert set(audits) == {"plain", "H1", "H2"}
     table = compare_regimes(audits)
     assert len(table) == 3
-    for col in ("accuracy", "DG_mean", "REDG_mean", "mute_fraction", "top_conflict_band"):
+    for col in (
+        "accuracy",
+        "DG_mean",
+        "REDG_mean",
+        "mute_fraction",
+        "top_conflict_band",
+    ):
         assert col in table.columns
 
 
@@ -291,6 +310,7 @@ def test_report_is_self_contained_html(data, fitted, tmp_path, sample):
     assert "__PYPASI__" in text
     # the only absolute URL permitted is the SVG XML namespace
     import re
+
     urls = set(re.findall(r"https?://[^\s\"'<>)]+", text))
     assert urls <= {"http://www.w3.org/2000/svg"}
     assert "<script src" not in text and "<link " not in text
@@ -330,3 +350,28 @@ def test_bacteria_loader_reports_a_missing_directory():
 
     with pytest.raises(NotADirectoryError):
         load_bacteria("/definitely/not/here")
+
+
+def test_band_accuracy_flags_an_uninformative_band():
+    import numpy as np
+
+    from pypasi import BandNegotiationClassifier, BandSet, PLSDA
+
+    rng = np.random.default_rng(0)
+    axis = np.linspace(400, 1800, 280)
+    n = 400
+    y = rng.integers(0, 3, n)
+    X = rng.normal(0, 1, (n, axis.size))
+    signal = (axis < 1500)[None, :] * (y[:, None] - 1.0) * np.sin(axis / 20.0)[None, :]
+    X = X + 1.5 * signal  # the last band (>= 1520) carries no class information
+    bands = BandSet.equal_width(axis, 7)
+    clf = BandNegotiationClassifier(
+        bands=bands,
+        base_estimator=PLSDA(n_components=3),
+        topology="complete",
+        random_state=0,
+    ).fit(X[:250], y[:250])
+    tab = clf.band_accuracy(X[250:], y[250:])
+    assert list(tab["band"]) == bands.labels
+    assert tab["above_chance"].iloc[:-1].all()
+    assert not tab["above_chance"].iloc[-1]

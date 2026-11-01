@@ -27,7 +27,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.utils.multiclass import unique_labels
 from sklearn.utils.validation import check_is_fitted, validate_data
 
-__all__ = ["PLSDA", "PCALDA", "vip_scores"]
+__all__ = ["PCALDA", "PLSDA", "vip_scores"]
 
 
 def vip_scores(pls: PLSRegression) -> np.ndarray:
@@ -60,12 +60,12 @@ def vip_scores(pls: PLSRegression) -> np.ndarray:
     component :math:`a`, and :math:`w_{ja}` the normalised loading weights.
     """
     check_is_fitted(pls, "x_weights_")
-    t = pls.x_scores_          # (n_samples, n_components)
-    w = pls.x_weights_         # (n_features, n_components)
-    q = pls.y_loadings_        # (n_targets, n_components)
+    t = pls.x_scores_  # (n_samples, n_components)
+    w = pls.x_weights_  # (n_features, n_components)
+    q = pls.y_loadings_  # (n_targets, n_components)
     n_features = w.shape[0]
 
-    ss = np.diag(t.T @ t @ q.T @ q).reshape(-1)     # per-component explained SS
+    ss = np.diag(t.T @ t @ q.T @ q).reshape(-1)  # per-component explained SS
     total = ss.sum()
     if total <= 0:
         return np.zeros(n_features)
@@ -121,16 +121,25 @@ class PLSDA(ClassifierMixin, TransformerMixin, BaseEstimator):
     J. Chemometrics 17:166-173.
     """
 
-    def __init__(self, n_components: int = 10, *, scale: bool = True,
-                 center_scores: bool = True):
+    def __init__(
+        self, n_components: int = 10, *, scale: bool = True, center_scores: bool = True
+    ):
         self.n_components = n_components
         self.scale = scale
         self.center_scores = center_scores
 
     def fit(self, X, y):
-        X, y = validate_data(self, X, y, accept_sparse=False, dtype="numeric",
-                             ensure_min_samples=2, ensure_min_features=1,
-                             multi_output=False, y_numeric=False)
+        X, y = validate_data(
+            self,
+            X,
+            y,
+            accept_sparse=False,
+            dtype="numeric",
+            ensure_min_samples=2,
+            ensure_min_features=1,
+            multi_output=False,
+            y_numeric=False,
+        )
         X = np.asarray(X, dtype=float)
         self.classes_ = unique_labels(y)
         if self.classes_.size < 2:
@@ -238,8 +247,15 @@ class PCALDA(ClassifierMixin, TransformerMixin, BaseEstimator):
         the LDA coefficients back through the PCA rotation.
     """
 
-    def __init__(self, n_components: int = 20, *, scale: bool = True, shrinkage=None,
-                 svd_solver: str = "full", random_state=None):
+    def __init__(
+        self,
+        n_components: int = 20,
+        *,
+        scale: bool = True,
+        shrinkage=None,
+        svd_solver: str = "full",
+        random_state=None,
+    ):
         self.n_components = n_components
         self.scale = scale
         self.shrinkage = shrinkage
@@ -247,9 +263,17 @@ class PCALDA(ClassifierMixin, TransformerMixin, BaseEstimator):
         self.random_state = random_state
 
     def fit(self, X, y):
-        X, y = validate_data(self, X, y, accept_sparse=False, dtype="numeric",
-                             ensure_min_samples=2, ensure_min_features=1,
-                             multi_output=False, y_numeric=False)
+        X, y = validate_data(
+            self,
+            X,
+            y,
+            accept_sparse=False,
+            dtype="numeric",
+            ensure_min_samples=2,
+            ensure_min_features=1,
+            multi_output=False,
+            y_numeric=False,
+        )
         X = np.asarray(X, dtype=float)
         self.classes_ = unique_labels(y)
         if self.classes_.size < 2:
@@ -261,15 +285,17 @@ class PCALDA(ClassifierMixin, TransformerMixin, BaseEstimator):
         self.scaler_ = StandardScaler().fit(X) if self.scale else None
         Xs = self.scaler_.transform(X) if self.scale else X
 
-        self.pca_ = PCA(n_components=self.n_components_,
-                        svd_solver=self.svd_solver,
-                        random_state=self.random_state).fit(Xs)
+        self.pca_ = PCA(
+            n_components=self.n_components_,
+            svd_solver=self.svd_solver,
+            random_state=self.random_state,
+        ).fit(Xs)
         solver = "lsqr" if self.shrinkage is not None else "svd"
         self.lda_ = LinearDiscriminantAnalysis(
             solver=solver, shrinkage=self.shrinkage
         ).fit(self.pca_.transform(Xs), y)
 
-        coef = np.atleast_2d(self.lda_.coef_)          # (n_classes, n_components)
+        coef = np.atleast_2d(self.lda_.coef_)  # (n_classes, n_components)
         self.feature_importances_ = np.abs(coef @ self.pca_.components_).max(axis=0)
         return self
 

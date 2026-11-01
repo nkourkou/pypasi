@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["perturb_bands", "MODES"]
+__all__ = ["MODES", "perturb_bands"]
 
 MODES = ("noise", "spike", "silence", "swap")
 
@@ -97,7 +97,9 @@ def perturb_bands(
     np.put_along_axis(affected, hit, True, axis=1)
 
     if mode == "swap":
-        shift = rng.integers(1, c, size=(n, n_hit)) if c > 1 else np.zeros((n, n_hit), int)
+        shift = (
+            rng.integers(1, c, size=(n, n_hit)) if c > 1 else np.zeros((n, n_hit), int)
+        )
         for row in range(n):
             for slot, b in enumerate(hit[row]):
                 damaged[row, b] = np.roll(L[row, b], int(shift[row, slot]))

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
-__all__ = ["make_conflict_signals", "ConflictSpec", "load_bacteria", "BacteriaData"]
+__all__ = ["BacteriaData", "ConflictSpec", "load_bacteria", "make_conflict_signals"]
 
 
 @dataclass
@@ -120,7 +120,9 @@ def make_conflict_signals(
     conflicted = np.zeros(n_samples, dtype=bool)
 
     X = np.full((n_samples, n_points), baseline, dtype=float)
-    X += 0.25 * _gaussian(axis, axis_range[0] + 0.15 * (axis_range[1] - axis_range[0]), 200.0)
+    X += 0.25 * _gaussian(
+        axis, axis_range[0] + 0.15 * (axis_range[1] - axis_range[0]), 200.0
+    )
 
     def _offset(cls: int) -> float:
         return (int(cls) - 0.5 * (n_classes - 1)) * peak_width * 1.6
@@ -158,15 +160,18 @@ def make_conflict_signals(
         if outlier.any() and quiet.size:
             for i in np.nonzero(outlier)[0]:
                 where = axis[rng.choice(quiet)]
-                X[i] += outlier_strength * (0.6 + 0.8 * rng.random()) * _gaussian(
-                    axis, where, peak_width * 0.12
+                X[i] += (
+                    outlier_strength
+                    * (0.6 + 0.8 * rng.random())
+                    * _gaussian(axis, where, peak_width * 0.12)
                 )
 
     X = np.clip(X, 0.0, None)
     norms = np.linalg.norm(X, axis=1, keepdims=True)
     X = X / np.where(norms > 0, norms, 1.0)
-    spec = ConflictSpec(tuple(informative_centers), tuple(conflicting_centers),
-                        conflicted, outlier)
+    spec = ConflictSpec(
+        tuple(informative_centers), tuple(conflicting_centers), conflicted, outlier
+    )
     return X, y, axis, spec
 
 
@@ -224,7 +229,7 @@ def _find(root: Path, name: str) -> Path:
 def load_bacteria(
     data_dir,
     *,
-    classes: "list | None" = None,
+    classes: list | None = None,
     normalize: bool = True,
     subsample: int | None = None,
     random_state=None,
@@ -276,11 +281,13 @@ def load_bacteria(
 
     if subsample is not None:
         rng = np.random.default_rng(random_state)
+
         def _take(X, y):
             if X.shape[0] <= subsample:
                 return X, y
             idx = rng.choice(X.shape[0], size=subsample, replace=False)
             return X[idx], y[idx]
+
         X_dev, y_dev = _take(X_dev, y_dev)
         X_test, y_test = _take(X_test, y_test)
 

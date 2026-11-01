@@ -21,14 +21,14 @@ import numpy as np
 from .divergence import center
 
 __all__ = [
-    "step_lengths",
+    "activity_threshold",
+    "band_decision_geometry",
     "band_step_lengths",
     "decision_geometry",
-    "band_decision_geometry",
     "early_decision_geometry",
-    "redg",
     "eredg",
-    "activity_threshold",
+    "redg",
+    "step_lengths",
 ]
 
 
@@ -121,6 +121,8 @@ def eredg(
     """
     dg = decision_geometry(l_hist)
     early = early_decision_geometry(l_hist, k_early)
-    delta = activity_threshold(dg, gate_quantile) if threshold is None else float(threshold)
+    delta = (
+        activity_threshold(dg, gate_quantile) if threshold is None else float(threshold)
+    )
     ratio = early / (dg + eps)
     return np.where(dg > delta, ratio, np.nan), delta

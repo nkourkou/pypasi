@@ -24,7 +24,8 @@ def cohort():
     supposed to notice.
     """
     X, y, axis, _ = make_conflict_signals(
-        n_samples=3600, noise=0.85, signal_strength=0.45, random_state=0)
+        n_samples=3600, noise=0.85, signal_strength=0.45, random_state=0
+    )
     return X[:2400], y[:2400], axis, X[2400:]
 
 
@@ -32,7 +33,8 @@ def cohort():
 def fitted(cohort):
     X, y, axis = cohort[:3]
     return BandNegotiationClassifier(
-        axis=axis, n_bands=7, axis_name="cm-1", random_state=0).fit(X, y)
+        axis=axis, n_bands=7, axis_name="cm-1", random_state=0
+    ).fit(X, y)
 
 
 @pytest.fixture(scope="module")
@@ -40,15 +42,17 @@ def profile(cohort, fitted):
     X = cohort[0]
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return ControlProfile.fit(fitted, X, n_batches=20, laser_nm=633.0,
-                                  random_state=0)
+        return ControlProfile.fit(
+            fitted, X, n_batches=20, laser_nm=633.0, random_state=0
+        )
 
 
 def _fresh(n, seed, corrupt=None):
     """Unseen rows of the reference acquisition, optionally corrupted."""
     rng = np.random.default_rng(seed)
     X, _, _, _ = make_conflict_signals(
-        n_samples=3600, noise=0.85, signal_strength=0.45, random_state=0)
+        n_samples=3600, noise=0.85, signal_strength=0.45, random_state=0
+    )
     X = X[2400:][rng.choice(1200, size=min(n, 1200), replace=n > 1200)]
     if corrupt is not None:
         X = X.copy()
@@ -182,7 +186,9 @@ def test_check_many_gives_one_row_per_batch(profile):
     batches += [_fresh(200, 400 + i, corrupt=slice(200, 260)) for i in range(2)]
     frame = profile.check_many(batches, [f"run {i}" for i in range(6)])
     assert len(frame) == 6
-    assert {"batch", "drift_score", "n_out_of_control", "in_control"} <= set(frame.columns)
+    assert {"batch", "drift_score", "n_out_of_control", "in_control"} <= set(
+        frame.columns
+    )
     assert all(f"z_{lab}" in frame.columns for lab in profile.labels_)
     assert not frame["in_control"].iloc[4:].any()
     assert frame["drift_score"].iloc[4:].min() > frame["drift_score"].iloc[:4].max()
@@ -211,20 +217,22 @@ def test_check_many_rejects_mismatched_names(profile):
 def test_profile_round_trips_through_json(profile, fitted, tmp_path):
     path = tmp_path / "profile.json"
     profile.save(path)
-    json.loads(path.read_text())                     # must be plain JSON
+    json.loads(path.read_text())  # must be plain JSON
     loaded = ControlProfile.load(path, estimator=fitted)
     X = _fresh(300, 21)
     a = profile.check(X, name="x").table
     b = loaded.check(X, name="x").table
-    assert np.allclose(a["z"].to_numpy(dtype=float), b["z"].to_numpy(dtype=float),
-                       equal_nan=True)
+    assert np.allclose(
+        a["z"].to_numpy(dtype=float), b["z"].to_numpy(dtype=float), equal_nan=True
+    )
 
 
 def test_loaded_profile_refuses_a_different_configuration(profile, cohort, tmp_path):
     """A profile is a set of numbers attached to specific bands; say so loudly."""
     X, y, axis = cohort[:3]
     other = BandNegotiationClassifier(
-        axis=axis, n_bands=5, axis_name="cm-1", random_state=0).fit(X, y)
+        axis=axis, n_bands=5, axis_name="cm-1", random_state=0
+    ).fit(X, y)
     path = tmp_path / "p.json"
     profile.save(path)
     with pytest.raises(ValueError, match="different configuration"):
@@ -247,12 +255,15 @@ def test_unknown_statistic_is_rejected(cohort, fitted):
         ControlProfile.fit(fitted, cohort[0], statistics=("vibes",))
 
 
-@pytest.mark.parametrize("kw,msg", [
-    ({"method": "eyeball"}, "method must be"),
-    ({"k": 0.0}, "k must be positive"),
-    ({"n_batches": 1}, "at least 2 reference batches"),
-    ({"n_batches": 10 ** 6}, "asked for"),
-])
+@pytest.mark.parametrize(
+    "kw,msg",
+    [
+        ({"method": "eyeball"}, "method must be"),
+        ({"k": 0.0}, "k must be positive"),
+        ({"n_batches": 1}, "at least 2 reference batches"),
+        ({"n_batches": 10**6}, "asked for"),
+    ],
+)
 def test_bad_arguments_are_rejected(cohort, fitted, kw, msg):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -273,7 +284,14 @@ def test_check_rejects_a_single_spectrum(profile):
 def test_every_advertised_statistic_can_be_charted(cohort, fitted):
     X = cohort[0]
     runs = [X[i::10] for i in range(10)]
-    p = ControlProfile.fit(fitted, batches=runs, statistics=MONITORED_STATISTICS)
+    from pypasi import NoveltyDetector
+
+    nd = NoveltyDetector(n_components=5).fit(
+        X
+    )  # residual statistics need a residual model
+    p = ControlProfile.fit(
+        fitted, batches=runs, statistics=MONITORED_STATISTICS, residual_model=nd
+    )
     rep = p.check(_fresh(300, 31))
     assert set(rep.table["statistic"]) == set(MONITORED_STATISTICS)
 
@@ -287,10 +305,13 @@ def test_control_figures_render(profile, dark, tmp_path):
 
     rep = profile.check(_fresh(400, 41, corrupt=slice(200, 260)), name="run 41")
     frame = profile.check_many([_fresh(150, 50 + i) for i in range(4)])
-    for i, fig in enumerate([viz.plot_control_chart(rep, dark=dark),
-                             viz.plot_control_chart(rep, dark=dark,
-                                                    statistic="mean_stress"),
-                             viz.plot_control_trend(frame, dark=dark)]):
+    for i, fig in enumerate(
+        [
+            viz.plot_control_chart(rep, dark=dark),
+            viz.plot_control_chart(rep, dark=dark, statistic="mean_stress"),
+            viz.plot_control_trend(frame, dark=dark),
+        ]
+    ):
         out = tmp_path / f"m{i}_{int(dark)}.png"
         fig.savefig(out, dpi=60)
         assert out.stat().st_size > 1000
@@ -311,18 +332,24 @@ def test_control_chart_works_for_an_in_control_batch(profile, tmp_path):
 def test_k_effective_widens_with_the_number_of_tests(cohort, fitted):
     X = cohort[0]
     runs = [X[i::10] for i in range(10)]
-    two = ControlProfile.fit(fitted, batches=runs, multiplicity="sidak",
-                             statistics=("mean_stress", "band_confidence"))
-    six = ControlProfile.fit(fitted, batches=runs, multiplicity="sidak",
-                             statistics=MONITORED_STATISTICS[:6])
+    two = ControlProfile.fit(
+        fitted,
+        batches=runs,
+        multiplicity="sidak",
+        statistics=("mean_stress", "band_confidence"),
+    )
+    six = ControlProfile.fit(
+        fitted, batches=runs, multiplicity="sidak", statistics=MONITORED_STATISTICS[:6]
+    )
     assert six.n_tests > two.n_tests
     assert six.k_effective > two.k_effective > two.k
 
 
 def test_multiplicity_none_reproduces_0_4_limits(cohort, fitted):
     X = cohort[0]
-    prof = ControlProfile.fit(fitted, batches=[X[i::10] for i in range(10)],
-                              multiplicity="none")
+    prof = ControlProfile.fit(
+        fitted, batches=[X[i::10] for i in range(10)], multiplicity="none"
+    )
     assert prof.k_effective == prof.k
 
 
@@ -337,8 +364,9 @@ def test_empirical_is_never_looser_than_sidak(cohort, fitted):
 
 def test_empirical_calibration_is_held_out(cohort, fitted):
     X = cohort[0]
-    prof = ControlProfile.fit(fitted, batches=[X[i::12] for i in range(12)],
-                              multiplicity="empirical")
+    prof = ControlProfile.fit(
+        fitted, batches=[X[i::12] for i in range(12)], multiplicity="empirical"
+    )
     assert prof.k_empirical_ is not None
     assert prof.resolution_ == pytest.approx(1 / 12)
 
@@ -355,8 +383,9 @@ def test_limits_report_exposes_the_resolution(cohort, fitted):
 def test_unknown_multiplicity_is_rejected(cohort, fitted):
     X = cohort[0]
     with pytest.raises(ValueError, match="unknown multiplicity"):
-        ControlProfile.fit(fitted, batches=[X[i::10] for i in range(10)],
-                           multiplicity="holm")
+        ControlProfile.fit(
+            fitted, batches=[X[i::10] for i in range(10)], multiplicity="holm"
+        )
 
 
 def test_wider_limits_flag_a_clean_batch_less_often(cohort, fitted):
@@ -366,10 +395,12 @@ def test_wider_limits_flag_a_clean_batch_less_often(cohort, fitted):
     # same random_state on both: the within/between variance decomposition draws
     # from an RNG, so two unseeded profiles get slightly different limits and the
     # comparison stops being about the multiplicity correction
-    loose = ControlProfile.fit(fitted, batches=runs, multiplicity="none",
-                               random_state=0)
-    tight = ControlProfile.fit(fitted, batches=runs, multiplicity="empirical",
-                               random_state=0)
+    loose = ControlProfile.fit(
+        fitted, batches=runs, multiplicity="none", random_state=0
+    )
+    tight = ControlProfile.fit(
+        fitted, batches=runs, multiplicity="empirical", random_state=0
+    )
     rng = np.random.default_rng(0)
     draws = [X[rng.choice(len(X), 60, replace=False)] for _ in range(30)]
     n_loose = sum(not loose.check(b).is_in_control for b in draws)
@@ -387,7 +418,28 @@ def test_empirical_threshold_stays_usable_with_few_batches(cohort, fitted):
     """
     X = cohort[0]
     for n in (6, 10, 20):
-        prof = ControlProfile.fit(fitted, batches=[X[i::n] for i in range(n)],
-                                  multiplicity="empirical")
+        prof = ControlProfile.fit(
+            fitted, batches=[X[i::n] for i in range(n)], multiplicity="empirical"
+        )
         assert prof.k_effective < 12.0, (n, prof.k_effective)
         assert not prof.check(_fresh(400, 900 + n)).table.empty
+
+
+def test_control_profile_is_reproducible_by_default():
+    import numpy as np
+
+    from pypasi import BandNegotiationClassifier, ControlProfile
+    from pypasi.datasets import make_conflict_signals
+
+    X, y, axis, _ = make_conflict_signals(n_samples=400, random_state=0)
+    clf = BandNegotiationClassifier(axis=axis, n_bands=5, random_state=0).fit(
+        X[:200], y[:200]
+    )
+    batches = [X[200 + 25 * i : 225 + 25 * i] for i in range(8)]
+    a = ControlProfile.fit(clf, batches=batches)
+    b = ControlProfile.fit(clf, batches=batches)
+    assert np.allclose(a.k_effective, b.k_effective)
+    ta, tb = a.check(X[:50]).table, b.check(X[:50]).table
+    assert np.allclose(
+        ta["z"].to_numpy(dtype=float), tb["z"].to_numpy(dtype=float), equal_nan=True
+    )

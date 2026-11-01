@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["softmax", "kl_divergence", "js_divergence", "center", "DIV_EPS"]
+__all__ = ["DIV_EPS", "center", "js_divergence", "kl_divergence", "softmax"]
 
 DIV_EPS = 1e-12
 
