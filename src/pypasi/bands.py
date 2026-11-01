@@ -1,6 +1,6 @@
 """Partitioning of a 1-D signal axis into contiguous bands.
 
-A :class:`BandSet` is between the abstract negotiation machinery and
+A :class:`BandSet` is the bridge between the abstract negotiation machinery and
 the physical signal. It remembers, for every band, both the feature columns it
 covers and the axis interval (e.g. Raman shift in cm-1) those columns occupy, so
 that a band implicated in conflict can always be traced back to the raw signal.
@@ -8,8 +8,8 @@ that a band implicated in conflict can always be traced back to the raw signal.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Iterable, Sequence
 
 import numpy as np
 
@@ -70,7 +70,9 @@ class BandSet:
         Name used in tables and figures.
     """
 
-    def __init__(self, axis: np.ndarray, bands: Sequence[Band], axis_name: str = "axis"):
+    def __init__(
+        self, axis: np.ndarray, bands: Sequence[Band], axis_name: str = "axis"
+    ):
         self.axis = np.asarray(axis, dtype=float)
         self.bands = list(bands)
         self.axis_name = axis_name
@@ -150,7 +152,7 @@ class BandSet:
         *,
         axis_name: str = "axis",
         labels: Sequence[str] | None = None,
-    ) -> "BandSet":
+    ) -> BandSet:
         """Build bands from explicit boundaries.
 
         Each band covers ``[edges[i], edges[i + 1])``; the last band includes its
@@ -187,7 +189,7 @@ class BandSet:
         lo: float | None = None,
         hi: float | None = None,
         axis_name: str = "axis",
-    ) -> "BandSet":
+    ) -> BandSet:
         """Split ``[lo, hi]`` into ``n_bands`` intervals of equal axis width.
 
         ``lo`` and ``hi`` default to the extremes of ``axis``.
@@ -199,7 +201,9 @@ class BandSet:
             raise ValueError("n_bands must be >= 1")
         if hi <= lo:
             raise ValueError(f"hi ({hi}) must exceed lo ({lo})")
-        return cls.from_edges(axis, np.linspace(lo, hi, n_bands + 1), axis_name=axis_name)
+        return cls.from_edges(
+            axis, np.linspace(lo, hi, n_bands + 1), axis_name=axis_name
+        )
 
     @classmethod
     def peak_informed(
@@ -213,15 +217,19 @@ class BandSet:
         smooth: int = 5,
         min_width: float | None = None,
         axis_name: str = "axis",
-    ) -> "BandSet":
-        """Place band boundaries in the troughs between the strongest peaks.
+    ) -> BandSet:
+        """Place band boundaries in the deepest troughs of the mean signal.
 
-        The mean signal over ``X`` is smoothed, its peaks are ranked by
-        prominence, and the ``n_bands - 1`` deepest minima separating the top
-        peaks become the boundaries. This keeps prominent features away from
-        band edges, where they would otherwise be split between two agents.
+        The mean signal over ``X`` is smoothed and every local minimum becomes a
+        candidate boundary, ranked by its depth (its prominence in the inverted
+        profile). The ``n_bands - 1`` deepest troughs that keep every band at
+        least ``min_width`` wide become the boundaries. This keeps prominent
+        features away from band edges, where they would otherwise be split
+        between two agents.
 
-        Falls back to :meth:`equal_width` if too few peaks are found.
+        If the troughs cannot supply enough boundaries, the widest remaining
+        bands are halved until ``n_bands`` is reached. Falls back to
+        :meth:`equal_width` if the mean signal has no troughs at all.
 
         Parameters
         ----------
@@ -230,9 +238,20 @@ class BandSet:
         smooth
             Width of the moving-average window applied before peak finding.
         min_width
-            Minimum permitted band width in axis units. Defaults to one tenth
-            of the full range.
+            Minimum permitted band width in axis units. Defaults to half the
+            equal-width band, ``0.5 * (hi - lo) / n_bands``, so a request for
+            more bands is never silently refused.
+
+        Notes
+        -----
+        Before 0.5.5 the default ``min_width`` was a tenth of the range
+        whatever ``n_bands`` was, and boundaries that violated it were dropped
+        without a warning: on the Ho et al. bacteria cohort a request for 7
+        bands returned 6, and 10 or 14 returned 9. A :class:`UserWarning` is now
+        raised whenever fewer bands than requested can be placed.
         """
+        import warnings
+
         from scipy.signal import find_peaks, peak_prominences
 
         axis = np.asarray(axis, dtype=float)
@@ -245,47 +264,57 @@ class BandSet:
         hi = float(axis.max()) if hi is None else float(hi)
         if n_bands < 1:
             raise ValueError("n_bands must be >= 1")
+        if hi <= lo:
+            raise ValueError(f"hi ({hi}) must exceed lo ({lo})")
         if n_bands == 1:
             return cls.from_edges(axis, [lo, hi], axis_name=axis_name)
         if min_width is None:
-            min_width = (hi - lo) / 10.0
+            min_width = 0.5 * (hi - lo) / n_bands
+        min_width = float(min_width)
+        if min_width * n_bands > (hi - lo):
+            raise ValueError(
+                f"min_width {min_width:g} x {n_bands} bands exceeds the range {hi - lo:g}"
+            )
 
         window = (axis >= lo) & (axis <= hi)
-        sub_axis = axis[window]
-        profile = X[:, window].mean(axis=0)
+        order = np.argsort(axis[window])
+        sub_axis = axis[window][order]
+        profile = X[:, window].mean(axis=0)[order]
         if smooth and smooth > 1:
             kernel = np.ones(int(smooth)) / float(smooth)
             profile = np.convolve(profile, kernel, mode="same")
 
-        peaks, _ = find_peaks(profile)
-        if peaks.size < n_bands:
+        troughs, _ = find_peaks(-profile)
+        if troughs.size == 0:
             return cls.equal_width(axis, n_bands, lo=lo, hi=hi, axis_name=axis_name)
-        prom = peak_prominences(profile, peaks)[0]
-        top = peaks[np.argsort(prom)[::-1][:n_bands]]
-        top = np.sort(top)
+        depth = peak_prominences(-profile, troughs)[0]
 
         cuts: list[float] = []
-        for a, b in zip(top[:-1], top[1:]):
-            trough = a + int(np.argmin(profile[a : b + 1]))
-            cuts.append(float(sub_axis[trough]))
+        for t in troughs[np.argsort(depth)[::-1]]:
+            if len(cuts) == n_bands - 1:
+                break
+            e = float(sub_axis[t])
+            if e - lo < min_width or hi - e < min_width:
+                continue
+            if any(abs(e - c) < min_width for c in cuts):
+                continue
+            cuts.append(e)
 
-        edges = [lo] + cuts + [hi]
-        # Enforce min_width by dropping boundaries that crowd their neighbour.
-        pruned = [edges[0]]
-        for e in edges[1:-1]:
-            if e - pruned[-1] >= min_width and edges[-1] - e >= min_width:
-                pruned.append(e)
-        pruned.append(edges[-1])
-        if len(pruned) - 1 < n_bands:
-            # Top up with equal-width cuts in the widest remaining gaps.
-            while len(pruned) - 1 < n_bands:
-                widths = np.diff(pruned)
-                j = int(np.argmax(widths))
-                mid = 0.5 * (pruned[j] + pruned[j + 1])
-                if widths[j] / 2 < min_width:
-                    break
-                pruned.insert(j + 1, mid)
-        return cls.from_edges(axis, pruned, axis_name=axis_name)
+        edges = [lo] + sorted(cuts) + [hi]
+        while len(edges) - 1 < n_bands:
+            widths = np.diff(edges)
+            j = int(np.argmax(widths))
+            if widths[j] / 2 < min_width:
+                break
+            edges.insert(j + 1, 0.5 * (edges[j] + edges[j + 1]))
+        if len(edges) - 1 < n_bands:
+            warnings.warn(
+                f"peak_informed placed {len(edges) - 1} of the {n_bands} bands "
+                f"requested; lower min_width ({min_width:g}) to place them all",
+                UserWarning,
+                stacklevel=2,
+            )
+        return cls.from_edges(axis, edges, axis_name=axis_name)
 
     # ------------------------------------------------------------- utilities
 

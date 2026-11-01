@@ -6,11 +6,10 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 
 from pypasi import (
-    AbsoluteGate,
-    BandSet,
     H1,
     H2,
-    Plain,
+    AbsoluteGate,
+    BandSet,
     QuantileGate,
     RankGate,
     Topology,
@@ -67,8 +66,11 @@ def test_peak_informed_places_edges_away_from_peaks(axis):
     rng = np.random.default_rng(0)
     peaks = [600.0, 1000.0, 1500.0]
     X = np.stack(
-        [sum(np.exp(-0.5 * ((axis - p) / 20) ** 2) for p in peaks) + rng.normal(0, 0.01, axis.size)
-         for _ in range(30)]
+        [
+            sum(np.exp(-0.5 * ((axis - p) / 20) ** 2) for p in peaks)
+            + rng.normal(0, 0.01, axis.size)
+            for _ in range(30)
+        ]
     )
     bs = BandSet.peak_informed(axis, X, 3)
     assert bs.n_bands == 3
@@ -99,11 +101,14 @@ def test_split_and_feature_lookup(axis):
 # ---------------------------------------------------------------- topology
 
 
-@pytest.mark.parametrize("build,expected_edges", [
-    (lambda: Topology.chain(5), 4),
-    (lambda: Topology.complete(5), 10),
-    (lambda: Topology.knn(5, k=2), 7),
-])
+@pytest.mark.parametrize(
+    "build,expected_edges",
+    [
+        (lambda: Topology.chain(5), 4),
+        (lambda: Topology.complete(5), 10),
+        (lambda: Topology.knn(5, k=2), 7),
+    ],
+)
 def test_topology_edge_counts(build, expected_edges):
     t = build()
     assert t.n_edges == expected_edges
@@ -237,7 +242,9 @@ def _traj(seed=0, n=4, t=11, k=5, c=3):
 def test_dg_is_invariant_to_uniform_logit_shifts():
     h = _traj()
     shifted = h + np.random.default_rng(1).normal(size=(4, 11, 5, 1)) * 50
-    np.testing.assert_allclose(decision_geometry(h), decision_geometry(shifted), atol=1e-9)
+    np.testing.assert_allclose(
+        decision_geometry(h), decision_geometry(shifted), atol=1e-9
+    )
 
 
 def test_stationary_trajectory_has_zero_dg():
@@ -247,7 +254,9 @@ def test_stationary_trajectory_has_zero_dg():
 
 def test_band_dg_sums_to_total_dg():
     h = _traj()
-    np.testing.assert_allclose(band_decision_geometry(h).sum(axis=1), decision_geometry(h))
+    np.testing.assert_allclose(
+        band_decision_geometry(h).sum(axis=1), decision_geometry(h)
+    )
 
 
 def test_early_dg_never_exceeds_total():
@@ -325,7 +334,9 @@ def test_h2_is_distinguishable_from_h1():
     sum-normalised aggregation cancels, collapsing H2 onto H1.
     """
     L = _setup()
-    gate = QuantileGate(q=0.6).fit(np.abs(np.random.default_rng(1).normal(size=(50, 6))) * 0.05)
+    gate = QuantileGate(q=0.6).fit(
+        np.abs(np.random.default_rng(1).normal(size=(50, 6))) * 0.05
+    )
     a = negotiate(L, regime=H1(), gate=gate, random_state=0)
     b = negotiate(L, regime=H2(), gate=gate, random_state=0)
     assert not np.allclose(a.logit_history, b.logit_history)
@@ -404,7 +415,9 @@ def test_zero_temperature_is_strictly_downhill():
 
 def test_collapse_is_flagged_when_the_guard_is_disabled():
     L = _setup(n=6, k=4) * 6.0
-    r = negotiate(L, regime="H1", gate=AbsoluteGate(1e-9, protect_min=0), random_state=0)
+    r = negotiate(
+        L, regime="H1", gate=AbsoluteGate(1e-9, protect_min=0), random_state=0
+    )
     assert r.collapsed.any()
     # a collapsed sample gets a uniform distribution, not a silent tie-break
     np.testing.assert_allclose(r.proba[r.collapsed].sum(axis=1), 1.0)
@@ -444,3 +457,27 @@ def test_unaffected_bands_are_untouched():
     L = _setup(n=7, k=6)
     d, _, affected = perturb_bands(L, 0.5, "noise", random_state=3)
     np.testing.assert_allclose(d[~affected], L[~affected])
+
+
+@pytest.mark.parametrize("n", [3, 5, 7, 10, 14, 20])
+def test_peak_informed_returns_the_requested_number_of_bands(axis, n):
+    rng = np.random.default_rng(1)
+    peaks = rng.uniform(450, 1750, 25)
+    X = np.stack(
+        [
+            sum(np.exp(-0.5 * ((axis - p) / 8) ** 2) for p in peaks)
+            + rng.normal(0, 0.01, axis.size)
+            for _ in range(20)
+        ]
+    )
+    bs = BandSet.peak_informed(axis, X, n)
+    assert bs.n_bands == n
+    assert min(b.width for b in bs) >= 0.5 * (axis.max() - axis.min()) / n - 1e-9
+
+
+def test_peak_informed_warns_when_min_width_refuses_bands(axis):
+    # one trough in the middle: halving can reach 4 bands of 350, not 7 of >= 190
+    X = (1.0 - np.exp(-0.5 * ((axis - 1100.0) / 30) ** 2))[None, :].repeat(3, axis=0)
+    with pytest.warns(UserWarning, match="placed 4 of the 7"):
+        bs = BandSet.peak_informed(axis, X, 7, min_width=190.0)
+    assert bs.n_bands == 4

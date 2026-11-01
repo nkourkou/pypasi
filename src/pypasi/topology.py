@@ -9,7 +9,7 @@ which the chain and the complete graph are special cases.
 
 from __future__ import annotations
 
-from typing import Iterable, Sequence
+from collections.abc import Iterable, Sequence
 
 import numpy as np
 
@@ -95,7 +95,7 @@ class Topology:
     # --------------------------------------------------------- constructors
 
     @classmethod
-    def chain(cls, n_bands: int) -> "Topology":
+    def chain(cls, n_bands: int) -> Topology:
         """Nearest-neighbour coupling along the axis. The published default."""
         A = np.zeros((n_bands, n_bands))
         for k in range(n_bands - 1):
@@ -103,13 +103,13 @@ class Topology:
         return cls(A, name="chain")
 
     @classmethod
-    def complete(cls, n_bands: int) -> "Topology":
+    def complete(cls, n_bands: int) -> Topology:
         """Every band couples to every other."""
         A = np.ones((n_bands, n_bands)) - np.eye(n_bands)
         return cls(A, name="complete")
 
     @classmethod
-    def knn(cls, n_bands: int, k: int = 2) -> "Topology":
+    def knn(cls, n_bands: int, k: int = 2) -> Topology:
         """Couple each band to its ``k`` nearest neighbours in band index."""
         if k < 1:
             raise ValueError("k must be >= 1")
@@ -124,7 +124,7 @@ class Topology:
     @classmethod
     def radius(
         cls, centers: Sequence[float], radius: float, *, decay: bool = False
-    ) -> "Topology":
+    ) -> Topology:
         """Couple bands whose centres lie within ``radius`` axis units.
 
         With ``decay=True`` the edge weight falls off as
@@ -148,7 +148,7 @@ class Topology:
         *,
         include_chain: bool = False,
         name: str = "custom",
-    ) -> "Topology":
+    ) -> Topology:
         """Build a graph from an explicit edge list.
 
         Each edge is ``(i, j)`` or ``(i, j, weight)``. Set ``include_chain`` to
@@ -174,12 +174,12 @@ class Topology:
         return cls(A, name=name)
 
     @classmethod
-    def from_matrix(cls, adjacency: np.ndarray, name: str = "custom") -> "Topology":
+    def from_matrix(cls, adjacency: np.ndarray, name: str = "custom") -> Topology:
         """Wrap a precomputed adjacency matrix."""
         return cls(adjacency, name=name)
 
     @classmethod
-    def resolve(cls, spec, n_bands: int, centers: np.ndarray | None = None) -> "Topology":
+    def resolve(cls, spec, n_bands: int, centers: np.ndarray | None = None) -> Topology:
         """Coerce a user-supplied topology specification into a Topology.
 
         Accepts an existing :class:`Topology`, one of the strings ``"chain"``,
@@ -210,7 +210,11 @@ class Topology:
         import pandas as pd
 
         e = self.edges
-        labels = list(labels) if labels is not None else [f"B{i + 1}" for i in range(self.n_bands)]
+        labels = (
+            list(labels)
+            if labels is not None
+            else [f"B{i + 1}" for i in range(self.n_bands)]
+        )
         return pd.DataFrame(
             {
                 "band_i": e[:, 0],

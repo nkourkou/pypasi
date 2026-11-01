@@ -34,7 +34,8 @@ def test_the_host_prediction_is_never_overridden(ext, host, cohort):
     X, _, _ = cohort
     np.testing.assert_array_equal(ext.predict(X), host.predict(X))
     np.testing.assert_array_equal(
-        ext.explain(X)["host_prediction"].to_numpy(), host.predict(X))
+        ext.explain(X)["host_prediction"].to_numpy(), host.predict(X)
+    )
 
 
 def test_report_separates_the_two_predictions(ext, cohort):
@@ -61,8 +62,9 @@ def test_report_says_what_the_negotiation_describes(ext, cohort):
 
 def test_novelty_is_optional(cohort, host):
     X, y, axis = cohort
-    bare = audit_external(host, X, y, axis=axis, n_bands=5, novelty=False,
-                          random_state=0)
+    bare = audit_external(
+        host, X, y, axis=axis, n_bands=5, novelty=False, random_state=0
+    )
     assert "novelty" not in bare.explain(X[:5]).columns
     with pytest.raises(RuntimeError, match="no NoveltyDetector"):
         bare.novelty_ratio(X[:5])
@@ -101,7 +103,7 @@ def test_validate_reports_against_the_host_errors(cohort, host):
 def test_validate_refuses_an_auroc_with_one_class(cohort, host):
     X, y, axis = cohort
     ext = audit_external(host, X, y, axis=axis, n_bands=5, random_state=0)
-    out = ext.validate(X, host.predict(X))      # host is right about everything
+    out = ext.validate(X, host.predict(X))  # host is right about everything
     assert out["auroc_vs_host_error"].isna().all()
     assert out["host_accuracy"].iloc[0] == pytest.approx(1.0)
 

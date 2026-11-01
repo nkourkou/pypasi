@@ -94,7 +94,8 @@ class ExternalAudit:
         if not hasattr(host, "predict"):
             raise TypeError(
                 f"{type(host).__name__} has no predict(); an external audit needs "
-                "a fitted classifier to attach to")
+                "a fitted classifier to attach to"
+            )
         self.host = host
         self.band_model = band_model
         self.novelty = novelty
@@ -154,7 +155,7 @@ class ExternalAudit:
         # belongs at the calm end, not at the alarming one.
         raw, _ = res.eredg(gate_quantile=gate_quantile)
         conflict = np.where(np.isfinite(raw), 1.0 - raw, 0.0)
-        stress = res.mean_stress                      # (n, bands)
+        stress = res.mean_stress  # (n, bands)
         worst = np.argmax(stress, axis=1)
 
         host_pred = np.asarray(self.host.predict(X))
@@ -164,29 +165,32 @@ class ExternalAudit:
         if hasattr(self.host, "predict_proba"):
             try:
                 host_conf = np.asarray(self.host.predict_proba(X), float).max(axis=1)
-            except Exception:                          # pragma: no cover - host's problem
+            except Exception:  # pragma: no cover - host's problem
                 pass
 
         labels = self.bands_.labels
         lo = np.array([b.lo for b in self.bands_])
         hi = np.array([b.hi for b in self.bands_])
-        out = pd.DataFrame({
-            "host_prediction": host_pred,
-            "band_prediction": band_pred,
-            "agreement": host_pred == band_pred,
-            "host_confidence": host_conf,
-            "conflict": conflict,
-            "mean_stress": stress.mean(axis=1),
-            "worst_band": [labels[i] for i in worst],
-            f"worst_band_{self.bands_.axis_name}_lo": lo[worst],
-            f"worst_band_{self.bands_.axis_name}_hi": hi[worst],
-        })
+        out = pd.DataFrame(
+            {
+                "host_prediction": host_pred,
+                "band_prediction": band_pred,
+                "agreement": host_pred == band_pred,
+                "host_confidence": host_conf,
+                "conflict": conflict,
+                "mean_stress": stress.mean(axis=1),
+                "worst_band": [labels[i] for i in worst],
+                f"worst_band_{self.bands_.axis_name}_lo": lo[worst],
+                f"worst_band_{self.bands_.axis_name}_hi": hi[worst],
+            }
+        )
         if self.novelty is not None:
             out.insert(6, "novelty", self.novelty_ratio(X))
         out.attrs["host"] = type(self.host).__name__
         out.attrs["note"] = (
             "conflict and mean_stress describe the auxiliary band ensemble, not "
-            "the host model's internal reasoning")
+            "the host model's internal reasoning"
+        )
         return out
 
     def novelty_ratio(self, X) -> np.ndarray:
@@ -233,11 +237,16 @@ class ExternalAudit:
             {"score": "mean_stress", "auroc_vs_host_error": auc(rep["mean_stress"])},
         ]
         if "novelty" in rep:
-            rows.append({"score": "novelty",
-                         "auroc_vs_host_error": auc(rep["novelty"])})
+            rows.append(
+                {"score": "novelty", "auroc_vs_host_error": auc(rep["novelty"])}
+            )
         if np.isfinite(rep["host_confidence"]).any():
-            rows.append({"score": "1 - host confidence",
-                         "auroc_vs_host_error": auc(1.0 - rep["host_confidence"])})
+            rows.append(
+                {
+                    "score": "1 - host confidence",
+                    "auroc_vs_host_error": auc(1.0 - rep["host_confidence"]),
+                }
+            )
 
         out = pd.DataFrame(rows)
         out["host_accuracy"] = float((rep["host_prediction"].to_numpy() == y).mean())
@@ -246,13 +255,16 @@ class ExternalAudit:
         out.attrs["note"] = (
             "these AUROCs are against the HOST model's errors and are specific "
             "to this host; degradation detection is a separate question and "
-            "does not depend on the host")
+            "does not depend on the host"
+        )
         return out
 
     def __repr__(self) -> str:  # pragma: no cover - cosmetic
-        return (f"ExternalAudit(host={type(self.host).__name__}, "
-                f"bands={self.bands_.n_bands}, "
-                f"novelty={'yes' if self.novelty is not None else 'no'})")
+        return (
+            f"ExternalAudit(host={type(self.host).__name__}, "
+            f"bands={self.bands_.n_bands}, "
+            f"novelty={'yes' if self.novelty is not None else 'no'})"
+        )
 
 
 def audit_external(
@@ -298,7 +310,7 @@ def audit_external(
     """
     X = np.asarray(X, dtype=float)
     band_model = BandNegotiationClassifier(
-        bands=bands, axis=axis, n_bands=n_bands,
-        base_estimator=base_estimator, **kwargs).fit(X, y)
+        bands=bands, axis=axis, n_bands=n_bands, base_estimator=base_estimator, **kwargs
+    ).fit(X, y)
     det = NoveltyDetector(n_components=n_components).fit(X) if novelty else None
     return ExternalAudit(host, band_model, det)

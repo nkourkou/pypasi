@@ -17,12 +17,16 @@ from pathlib import Path
 
 import numpy as np
 
-__all__ = ["write_report", "report_payload"]
+__all__ = ["report_payload", "write_report"]
 
 
 def _series(values) -> list:
-    return [None if v is None or (isinstance(v, float) and not np.isfinite(v)) else round(float(v), 6)
-            for v in np.asarray(values).ravel()]
+    return [
+        None
+        if v is None or (isinstance(v, float) and not np.isfinite(v))
+        else round(float(v), 6)
+        for v in np.asarray(values).ravel()
+    ]
 
 
 def _downsample(axis: np.ndarray, values: np.ndarray, max_points: int = 900):
@@ -60,7 +64,9 @@ def report_payload(audit, sample: int | None = None) -> dict:
             for b in bands
         ],
         "conflict": {
-            c: _series(conflict[c]) if conflict[c].dtype.kind in "fiu" else conflict[c].astype(str).tolist()
+            c: _series(conflict[c])
+            if conflict[c].dtype.kind in "fiu"
+            else conflict[c].astype(str).tolist()
             for c in conflict.columns
         },
     }
@@ -69,7 +75,9 @@ def report_payload(audit, sample: int | None = None) -> dict:
         i = int(sample)
         payload["sample"] = {
             "index": i,
-            "y_pred": str(audit.y_pred_labels[i]) if audit.y_pred_labels is not None else str(r.y_pred[i]),
+            "y_pred": str(audit.y_pred_labels[i])
+            if audit.y_pred_labels is not None
+            else str(r.y_pred[i]),
             "y_true": None if audit.y_true is None else str(audit.y_true[i]),
             "correct": None if audit.correct is None else bool(audit.correct[i]),
             "confidence": float(r.proba[i].max()),
@@ -77,12 +85,20 @@ def report_payload(audit, sample: int | None = None) -> dict:
             "dg": float(r.dg[i]),
             "dg_early": float(r.dg_early[i]),
             "redg": float(r.redg[i]),
-            "stress": r.stress_history[i].T.tolist() if r.stress_history is not None else None,
-            "muted": r.mute_history[i].T.astype(int).tolist() if r.mute_history is not None else None,
-            "weights": r.weight_history[i].T.tolist() if r.weight_history is not None else None,
+            "stress": r.stress_history[i].T.tolist()
+            if r.stress_history is not None
+            else None,
+            "muted": r.mute_history[i].T.astype(int).tolist()
+            if r.mute_history is not None
+            else None,
+            "weights": r.weight_history[i].T.tolist()
+            if r.weight_history is not None
+            else None,
             "band_dg": _series(r.band_dg[i]),
             "band_stress": _series(r.mean_stress[i]),
-            "energy": _series(r.energy_history[i]) if r.energy_history is not None else None,
+            "energy": _series(r.energy_history[i])
+            if r.energy_history is not None
+            else None,
         }
         if audit.X is not None:
             ax, vals = _downsample(bands.axis, audit.X[i])
@@ -102,14 +118,22 @@ def report_payload(audit, sample: int | None = None) -> dict:
     if audit.X is not None:
         traces = {}
         for b in bands:
-            block = audit.X[[sample], :][:, b.features] if sample is not None else audit.X[:, b.features]
+            block = (
+                audit.X[[sample], :][:, b.features]
+                if sample is not None
+                else audit.X[:, b.features]
+            )
             ax, vals = _downsample(bands.axis[b.features], block.mean(axis=0), 300)
             traces[b.label] = {"axis": _series(ax), "mean": _series(vals)}
             if sample is None and audit.y_true is not None:
                 by_class = {}
                 for c in np.unique(audit.y_true):
                     m = audit.y_true == c
-                    _, cv = _downsample(bands.axis[b.features], audit.X[m][:, b.features].mean(axis=0), 300)
+                    _, cv = _downsample(
+                        bands.axis[b.features],
+                        audit.X[m][:, b.features].mean(axis=0),
+                        300,
+                    )
                     by_class[str(c)] = _series(cv)
                 traces[b.label]["by_class"] = by_class
         payload["band_traces"] = traces
@@ -337,7 +361,9 @@ def _kpi(value: str, key: str, tone: str = "") -> str:
     return f'<div class="kpi {tone}"><div class="v">{value}</div><div class="k">{key}</div></div>'
 
 
-def write_report(audit, path, *, sample: int | None = None, title: str | None = None) -> str:
+def write_report(
+    audit, path, *, sample: int | None = None, title: str | None = None
+) -> str:
     """Render an audit as a single self-contained HTML file.
 
     Parameters
@@ -392,7 +418,7 @@ def write_report(audit, path, *, sample: int | None = None, title: str | None = 
         ]
 
     stress_section = (
-        '<h2>Disagreement over the negotiation</h2>'
+        "<h2>Disagreement over the negotiation</h2>"
         '<div class="panel"><div id="stress"></div>'
         '<p class="sub" style="margin:8px 0 0;font-size:.8rem">'
         "Each row is a band, each column one negotiation step. Darker means more "
@@ -409,7 +435,7 @@ def write_report(audit, path, *, sample: int | None = None, title: str | None = 
 <style>{_CSS}</style></head><body><div class="wrap">
 <h1>{html.escape(heading)}</h1>
 <p class="sub">{html.escape(sub)}</p>
-<div class="kpis">{''.join(kpis)}</div>
+<div class="kpis">{"".join(kpis)}</div>
 
 <h2>Signal and band partition</h2>
 <div class="panel"><div id="signal"></div>
@@ -425,7 +451,7 @@ Click any band to inspect it.</p></div>
 High stress means a band disagreed with its neighbours, but that happens both
 when a band is <em>wrong</em> and when it is merely <em>uninformative</em>.
 Band confidence separates the two; informed conflict combines them. Ranked by
-<strong>{html.escape(payload['rank_basis'].replace('_', ' '))}</strong>.</p></div>
+<strong>{html.escape(payload["rank_basis"].replace("_", " "))}</strong>.</p></div>
 
 <h2>Selected band, raw signal</h2>
 <div class="panel detail">

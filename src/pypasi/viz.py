@@ -36,17 +36,17 @@ from dataclasses import dataclass
 import numpy as np
 
 __all__ = [
-    "plot_bands",
+    "Palette",
     "plot_band_conflict",
-    "plot_importance_vs_conflict",
-    "plot_stress_map",
-    "plot_regime_comparison",
-    "plot_dg_curve",
-    "plot_triage_map",
-    "plot_risk_coverage",
+    "plot_bands",
     "plot_control_chart",
     "plot_control_trend",
-    "Palette",
+    "plot_dg_curve",
+    "plot_importance_vs_conflict",
+    "plot_regime_comparison",
+    "plot_risk_coverage",
+    "plot_stress_map",
+    "plot_triage_map",
 ]
 
 
@@ -66,31 +66,69 @@ class Palette:
     div_high: str
 
     @staticmethod
-    def light() -> "Palette":
+    def light() -> Palette:
         return Palette(
-            surface="#fcfcfb", ink="#0b0b0b", secondary="#52514e", muted="#7c7b76",
+            surface="#fcfcfb",
+            ink="#0b0b0b",
+            secondary="#52514e",
+            muted="#7c7b76",
             grid="#e7e6e2",
             series=("#2a78d6", "#eb6834", "#1baf7a"),
-            seq=("#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"),
-            div_low="#2a78d6", div_mid="#f0efec", div_high="#e34948",
+            seq=(
+                "#cde2fb",
+                "#9ec5f4",
+                "#6da7ec",
+                "#3987e5",
+                "#256abf",
+                "#184f95",
+                "#0d366b",
+            ),
+            div_low="#2a78d6",
+            div_mid="#f0efec",
+            div_high="#e34948",
         )
 
     @staticmethod
-    def dark() -> "Palette":
+    def dark() -> Palette:
         return Palette(
-            surface="#1a1a19", ink="#ffffff", secondary="#c3c2b7", muted="#8f8e86",
+            surface="#1a1a19",
+            ink="#ffffff",
+            secondary="#c3c2b7",
+            muted="#8f8e86",
             grid="#33332f",
             series=("#3987e5", "#d95926", "#199e70"),
-            seq=("#0d366b", "#184f95", "#256abf", "#3987e5", "#6da7ec", "#9ec5f4", "#cde2fb"),
-            div_low="#3987e5", div_mid="#383835", div_high="#e66767",
+            seq=(
+                "#0d366b",
+                "#184f95",
+                "#256abf",
+                "#3987e5",
+                "#6da7ec",
+                "#9ec5f4",
+                "#cde2fb",
+            ),
+            div_low="#3987e5",
+            div_mid="#383835",
+            div_high="#e66767",
         )
 
     @staticmethod
-    def of(dark: bool) -> "Palette":
+    def of(dark: bool) -> Palette:
         return Palette.dark() if dark else Palette.light()
 
 
+def _require_matplotlib():
+    """Import matplotlib, or explain how to get it."""
+    try:
+        import matplotlib  # noqa: F401
+    except ImportError as exc:  # pragma: no cover - exercised in the no-matplotlib test
+        raise ImportError(
+            "pypasi.viz needs matplotlib, which is optional: pip install 'pypasi[viz]'. "
+            "Everything else in pypasi, including the HTML and CSV reports, works without it."
+        ) from exc
+
+
 def _figure(dark: bool, figsize, nrows=1, ncols=1, **kw):
+    _require_matplotlib()
     import matplotlib.pyplot as plt
 
     p = Palette.of(dark)
@@ -111,20 +149,29 @@ def _figure(dark: bool, figsize, nrows=1, ncols=1, **kw):
 def _title(ax, text, p, sub=None):
     """Title above, subtitle beneath it, both clear of the axes."""
     if text:
-        ax.set_title(text, color=p.ink, fontsize=11.5, loc="left",
-                     pad=22 if sub else 7)
+        ax.set_title(text, color=p.ink, fontsize=11.5, loc="left", pad=22 if sub else 7)
     if sub:
-        ax.text(0.0, 1.012, sub, transform=ax.transAxes, color=p.muted,
-                fontsize=8.8, va="bottom", ha="left")
+        ax.text(
+            0.0,
+            1.012,
+            sub,
+            transform=ax.transAxes,
+            color=p.muted,
+            fontsize=8.8,
+            va="bottom",
+            ha="left",
+        )
 
 
 def _seq_cmap(p: Palette):
+    _require_matplotlib()
     from matplotlib.colors import LinearSegmentedColormap
 
     return LinearSegmentedColormap.from_list("pypasi_seq", list(p.seq))
 
 
 def _div_cmap(p: Palette):
+    _require_matplotlib()
     from matplotlib.colors import LinearSegmentedColormap
 
     return LinearSegmentedColormap.from_list(
@@ -135,14 +182,21 @@ def _div_cmap(p: Palette):
 # ------------------------------------------------------------------ figures
 
 
-def plot_bands(bands, X, y=None, *, dark: bool = False, ax=None, max_classes: int = 3,
-               title: str = "Signal and band partition"):
+def plot_bands(
+    bands,
+    X,
+    y=None,
+    *,
+    dark: bool = False,
+    ax=None,
+    max_classes: int = 3,
+    title: str = "Signal and band partition",
+):
     """Mean signal with the band partition shaded behind it.
 
     With ``y`` supplied, one mean trace per class, direct-labelled at the right
     edge so identity never depends on colour alone.
     """
-    import matplotlib.pyplot as plt
 
     X = np.asarray(X, dtype=float)
     p = Palette.of(dark)
@@ -166,14 +220,28 @@ def plot_bands(bands, X, y=None, *, dark: bool = False, ax=None, max_classes: in
     # Band labels sit along the bottom, leaving the top clear for the legend.
     for i, b in enumerate(bands):
         ax.axvspan(b.lo, b.hi, color=p.grid, alpha=0.55 if i % 2 == 0 else 0.22, lw=0)
-        ax.text(0.5 * (b.lo + b.hi), ymin - pad * 0.72, b.label, ha="center",
-                va="center", color=p.muted, fontsize=8.5)
+        ax.text(
+            0.5 * (b.lo + b.hi),
+            ymin - pad * 0.72,
+            b.label,
+            ha="center",
+            va="center",
+            color=p.muted,
+            fontsize=8.5,
+        )
 
     # Room at the right edge so direct labels are never clipped.
     gutter = 0.085 * (hi - lo)
     for i, (name, tr) in enumerate(traces):
-        ax.plot(axis, tr, color=p.series[i % len(p.series)], linewidth=2.0,
-                solid_capstyle="round", zorder=3, label=name)
+        ax.plot(
+            axis,
+            tr,
+            color=p.series[i % len(p.series)],
+            linewidth=2.0,
+            solid_capstyle="round",
+            zorder=3,
+            label=name,
+        )
 
     if len(traces) > 1:
         # Spectra converge at the edges, so end labels collide. Nudge them
@@ -187,12 +255,25 @@ def plot_bands(bands, X, y=None, *, dark: bool = False, ax=None, max_classes: in
             if placed[b] - placed[a] < gap:
                 placed[b] = placed[a] + gap
         for i, (name, _) in enumerate(traces):
-            ax.annotate(name, (hi, placed[i]), xytext=(7, 0),
-                        textcoords="offset points", color=p.secondary,
-                        fontsize=9, va="center", annotation_clip=False)
+            ax.annotate(
+                name,
+                (hi, placed[i]),
+                xytext=(7, 0),
+                textcoords="offset points",
+                color=p.secondary,
+                fontsize=9,
+                va="center",
+                annotation_clip=False,
+            )
     if len(traces) > 1:
-        ax.legend(frameon=False, fontsize=9, loc="upper right",
-                  labelcolor=p.secondary, ncol=len(traces), borderaxespad=0.2)
+        ax.legend(
+            frameon=False,
+            fontsize=9,
+            loc="upper right",
+            labelcolor=p.secondary,
+            ncol=len(traces),
+            borderaxespad=0.2,
+        )
 
     ax.set_xlim(lo, hi + gutter)
     ax.set_ylim(ymin - pad * 1.25, ymax + pad * 1.5)
@@ -204,8 +285,14 @@ def plot_bands(bands, X, y=None, *, dark: bool = False, ax=None, max_classes: in
     return fig
 
 
-def plot_band_conflict(audit, *, dark: bool = False, metric: str | None = None,
-                       ax=None, title: str = "Where inference runs into conflict"):
+def plot_band_conflict(
+    audit,
+    *,
+    dark: bool = False,
+    metric: str | None = None,
+    ax=None,
+    title: str = "Where inference runs into conflict",
+):
     """Per-band conflict as a bar chart.
 
     With ground truth available the metric is ``excess_stress`` - conflict on
@@ -216,8 +303,11 @@ def plot_band_conflict(audit, *, dark: bool = False, metric: str | None = None,
     tbl = audit.conflict_table()
     p = Palette.of(dark)
     if metric is None:
-        metric = "excess_stress" if ("excess_stress" in tbl
-                                     and tbl["excess_stress"].notna().any()) else "informed_conflict"
+        metric = (
+            "excess_stress"
+            if ("excess_stress" in tbl and tbl["excess_stress"].notna().any())
+            else "informed_conflict"
+        )
     vals = tbl[metric].to_numpy(dtype=float)
     labels = tbl["label"].tolist()
     diverging = metric == "excess_stress"
@@ -238,35 +328,54 @@ def plot_band_conflict(audit, *, dark: bool = False, metric: str | None = None,
         colors = [cmap(0.25 + 0.7 * (v / span)) for v in vals]
 
     # a 2px surface gap between neighbouring bars keeps them reading as separate
-    ax.bar(x, vals, width=0.78, color=colors, edgecolor=p.surface, linewidth=2.0,
-           zorder=3)
+    ax.bar(
+        x, vals, width=0.78, color=colors, edgecolor=p.surface, linewidth=2.0, zorder=3
+    )
     ax.axhline(0, color=p.secondary, linewidth=1.0, zorder=4)
 
     off = 0.03 * (np.nanmax(vals) - min(0.0, np.nanmin(vals)) or 1.0)
     for xi, v in zip(x, vals):
         if not np.isfinite(v):
             continue
-        ax.text(xi, v + (off if v >= 0 else -off), f"{v:.3g}", ha="center",
-                va="bottom" if v >= 0 else "top", color=p.secondary, fontsize=8.5)
+        ax.text(
+            xi,
+            v + (off if v >= 0 else -off),
+            f"{v:.3g}",
+            ha="center",
+            va="bottom" if v >= 0 else "top",
+            color=p.secondary,
+            fontsize=8.5,
+        )
 
     ax.set_xticks(x)
     ax.set_xticklabels(
-        [f"{l}\n{lo:g}–{hi:g}" for l, lo, hi in
-         zip(labels, tbl.iloc[:, 2], tbl.iloc[:, 3])],
-        color=p.secondary, fontsize=8.5,
+        [
+            f"{lab}\n{lo:g}–{hi:g}"
+            for lab, lo, hi in zip(labels, tbl.iloc[:, 2], tbl.iloc[:, 3])
+        ],
+        color=p.secondary,
+        fontsize=8.5,
     )
     ax.set_ylabel(metric.replace("_", " "), color=p.secondary, fontsize=9.5)
     ax.grid(axis="x", visible=False)
-    sub = ("cumulative stress on wrong predictions minus right ones"
-           if diverging else "stress weighted by how confident the band was")
+    sub = (
+        "cumulative stress on wrong predictions minus right ones"
+        if diverging
+        else "stress weighted by how confident the band was"
+    )
     _title(ax, title, p, sub)
     fig.tight_layout()
     return fig
 
 
-def plot_importance_vs_conflict(audit, importance, per_feature=None, *,
-                                dark: bool = False,
-                                title: str = "Discriminative importance versus conflict"):
+def plot_importance_vs_conflict(
+    audit,
+    importance,
+    per_feature=None,
+    *,
+    dark: bool = False,
+    title: str = "Discriminative importance versus conflict",
+):
     """The two questions side by side, on a shared signal axis.
 
     Top: where a model fitted on the whole signal finds class information.
@@ -283,35 +392,75 @@ def plot_importance_vs_conflict(audit, importance, per_feature=None, *,
         Optional per-feature importance from the same call, drawn as the
         continuous profile behind the band summary.
     """
-    fig, axes, p = _figure(dark, (9.5, 5.6), nrows=2, sharex=True,
-                           gridspec_kw={"height_ratios": [1.0, 1.0], "hspace": 0.18})
+    fig, axes, p = _figure(
+        dark,
+        (9.5, 5.6),
+        nrows=2,
+        sharex=True,
+        gridspec_kw={"height_ratios": [1.0, 1.0], "hspace": 0.18},
+    )
     top, bot = axes
     bands = audit.bands
     tbl = audit.conflict_table()
 
     # --- top: discriminative importance
     if per_feature is not None:
-        top.plot(bands.axis, np.asarray(per_feature, dtype=float),
-                 color=p.series[0], linewidth=1.4, alpha=0.55, zorder=2)
+        top.plot(
+            bands.axis,
+            np.asarray(per_feature, dtype=float),
+            color=p.series[0],
+            linewidth=1.4,
+            alpha=0.55,
+            zorder=2,
+        )
     for b, v in zip(bands, importance["importance_mean"]):
-        top.add_patch(__import__("matplotlib").patches.Rectangle(
-            (b.lo, 0), b.width, v, facecolor=p.series[0], alpha=0.30,
-            edgecolor=p.surface, linewidth=2.0, zorder=3))
+        top.add_patch(
+            __import__("matplotlib").patches.Rectangle(
+                (b.lo, 0),
+                b.width,
+                v,
+                facecolor=p.series[0],
+                alpha=0.30,
+                edgecolor=p.surface,
+                linewidth=2.0,
+                zorder=3,
+            )
+        )
     top.set_ylabel("importance", color=p.secondary, fontsize=9.5)
     top.grid(axis="x", visible=False)
-    _title(top, title, p, "where the classifier finds information (band mean, profile behind)")
+    _title(
+        top,
+        title,
+        p,
+        "where the classifier finds information (band mean, profile behind)",
+    )
 
     # --- bottom: conflict
-    metric = ("excess_stress" if ("excess_stress" in tbl
-              and tbl["excess_stress"].notna().any()) else "informed_conflict")
+    metric = (
+        "excess_stress"
+        if ("excess_stress" in tbl and tbl["excess_stress"].notna().any())
+        else "informed_conflict"
+    )
     vals = tbl[metric].to_numpy(dtype=float)
     span = np.nanmax(np.abs(vals)) or 1.0
     cmap = _div_cmap(p) if metric == "excess_stress" else _seq_cmap(p)
     for b, v in zip(bands, vals):
-        c = cmap(0.5 + 0.5 * (v / span)) if metric == "excess_stress" else cmap(0.25 + 0.7 * (v / span))
-        bot.add_patch(__import__("matplotlib").patches.Rectangle(
-            (b.lo, min(0.0, v)), b.width, abs(v), facecolor=c,
-            edgecolor=p.surface, linewidth=2.0, zorder=3))
+        c = (
+            cmap(0.5 + 0.5 * (v / span))
+            if metric == "excess_stress"
+            else cmap(0.25 + 0.7 * (v / span))
+        )
+        bot.add_patch(
+            __import__("matplotlib").patches.Rectangle(
+                (b.lo, min(0.0, v)),
+                b.width,
+                abs(v),
+                facecolor=c,
+                edgecolor=p.surface,
+                linewidth=2.0,
+                zorder=3,
+            )
+        )
     bot.axhline(0, color=p.secondary, linewidth=1.0, zorder=4)
     bot.set_ylim(min(0.0, np.nanmin(vals)) * 1.25 - 1e-9, np.nanmax(vals) * 1.25 + 1e-9)
     bot.set_ylabel(metric.replace("_", " "), color=p.secondary, fontsize=9.5)
@@ -323,35 +472,59 @@ def plot_importance_vs_conflict(audit, importance, per_feature=None, *,
         ax.set_xlim(bands.lo, bands.hi)
     top.set_ylim(0, top.get_ylim()[1] * 1.14)
     for b in bands:
-        top.text(0.5 * (b.lo + b.hi), 0.955, b.label, transform=top.get_xaxis_transform(),
-                 ha="center", va="top", color=p.muted, fontsize=8.5)
+        top.text(
+            0.5 * (b.lo + b.hi),
+            0.955,
+            b.label,
+            transform=top.get_xaxis_transform(),
+            ha="center",
+            va="top",
+            color=p.muted,
+            fontsize=8.5,
+        )
     # Rectangle patches make tight_layout unreliable here, so place the axes.
     fig.subplots_adjust(left=0.085, right=0.985, top=0.86, bottom=0.10, hspace=0.30)
     return fig
 
 
-def plot_stress_map(result, bands, sample: int = 0, *, dark: bool = False,
-                    title: str | None = None):
+def plot_stress_map(
+    result, bands, sample: int = 0, *, dark: bool = False, title: str | None = None
+):
     """Band-by-iteration disagreement for one signal.
 
     Silenced steps are outlined rather than recoloured, so the map keeps a
     single sequential scale and muting reads as a separate channel.
     """
+    _require_matplotlib()
     import matplotlib.pyplot as plt
 
     if result.stress_history is None:
         raise RuntimeError("stress history was not recorded")
-    S = result.stress_history[sample].T          # (bands, steps)
+    S = result.stress_history[sample].T  # (bands, steps)
     M = None if result.mute_history is None else result.mute_history[sample].T
 
     fig, ax, p = _figure(dark, (9.0, 0.42 * S.shape[0] + 1.9))
     # sqrt keeps late, small disagreements visible without overstating them
-    im = ax.imshow(np.sqrt(np.clip(S, 0, None)), aspect="auto", cmap=_seq_cmap(p),
-                   interpolation="nearest", origin="upper")
+    im = ax.imshow(
+        np.sqrt(np.clip(S, 0, None)),
+        aspect="auto",
+        cmap=_seq_cmap(p),
+        interpolation="nearest",
+        origin="upper",
+    )
     if M is not None:
         for k, t in zip(*np.nonzero(M)):
-            ax.add_patch(plt.Rectangle((t - 0.5, k - 0.5), 1, 1, fill=False,
-                                       edgecolor=p.div_high, linewidth=1.6, zorder=4))
+            ax.add_patch(
+                plt.Rectangle(
+                    (t - 0.5, k - 0.5),
+                    1,
+                    1,
+                    fill=False,
+                    edgecolor=p.div_high,
+                    linewidth=1.6,
+                    zorder=4,
+                )
+            )
     ax.set_yticks(range(S.shape[0]))
     ax.set_yticklabels(bands.labels, color=p.secondary, fontsize=9)
     ax.set_xlabel("negotiation step", color=p.secondary, fontsize=9.5)
@@ -366,9 +539,13 @@ def plot_stress_map(result, bands, sample: int = 0, *, dark: bool = False,
     return fig
 
 
-def plot_regime_comparison(table, *, dark: bool = False,
-                           metrics=("accuracy", "DG_mean"),
-                           title: str = "Regime comparison"):
+def plot_regime_comparison(
+    table,
+    *,
+    dark: bool = False,
+    metrics=("accuracy", "DG_mean"),
+    title: str = "Regime comparison",
+):
     """One panel per metric - never two scales on one axis.
 
     Accuracy and DG have nothing in common dimensionally, so putting them on a
@@ -376,7 +553,9 @@ def plot_regime_comparison(table, *, dark: bool = False,
     """
     metrics = [m for m in metrics if m in table.columns]
     if not metrics:
-        raise ValueError(f"none of the requested metrics are in the table: {list(table.columns)}")
+        raise ValueError(
+            f"none of the requested metrics are in the table: {list(table.columns)}"
+        )
     fig, axes, p = _figure(dark, (4.4 * len(metrics), 3.5), ncols=len(metrics))
     axes = np.atleast_1d(axes)
 
@@ -385,12 +564,26 @@ def plot_regime_comparison(table, *, dark: bool = False,
     for ax, metric in zip(axes, metrics):
         vals = table[metric].to_numpy(dtype=float)
         colors = [p.series[i % len(p.series)] for i in range(len(regimes))]
-        ax.bar(x, vals, width=0.62, color=colors, edgecolor=p.surface,
-               linewidth=2.0, zorder=3)
+        ax.bar(
+            x,
+            vals,
+            width=0.62,
+            color=colors,
+            edgecolor=p.surface,
+            linewidth=2.0,
+            zorder=3,
+        )
         top = np.nanmax(vals) or 1.0
         for xi, v in zip(x, vals):
-            ax.text(xi, v + 0.03 * top, f"{v:.3g}", ha="center", va="bottom",
-                    color=p.secondary, fontsize=9)
+            ax.text(
+                xi,
+                v + 0.03 * top,
+                f"{v:.3g}",
+                ha="center",
+                va="bottom",
+                color=p.secondary,
+                fontsize=9,
+            )
         ax.set_xticks(x)
         ax.set_xticklabels(regimes, color=p.secondary, fontsize=9.5)
         ax.set_ylim(0, top * 1.18)
@@ -401,8 +594,15 @@ def plot_regime_comparison(table, *, dark: bool = False,
     return fig
 
 
-def plot_dg_curve(frame, *, dark: bool = False, x="damage_fraction", value="DG_mean",
-                  group="regime", title: str = "Reconciliation effort under corruption"):
+def plot_dg_curve(
+    frame,
+    *,
+    dark: bool = False,
+    x="damage_fraction",
+    value="DG_mean",
+    group="regime",
+    title: str = "Reconciliation effort under corruption",
+):
     """One line per regime, direct-labelled at the right edge.
 
     Expects a long-format table with a corruption level, a value and a group.
@@ -412,12 +612,27 @@ def plot_dg_curve(frame, *, dark: bool = False, x="damage_fraction", value="DG_m
     for i, g in enumerate(groups):
         sub = frame[frame[group].astype(str) == g].sort_values(x)
         c = p.series[i % len(p.series)]
-        ax.plot(sub[x], sub[value], color=c, linewidth=2.0, marker="o",
-                markersize=6.5, markeredgecolor=p.surface, markeredgewidth=1.6,
-                zorder=3, label=g)
-        ax.annotate(g, (sub[x].iloc[-1], sub[value].iloc[-1]), xytext=(7, 0),
-                    textcoords="offset points", color=p.secondary, fontsize=9.5,
-                    va="center")
+        ax.plot(
+            sub[x],
+            sub[value],
+            color=c,
+            linewidth=2.0,
+            marker="o",
+            markersize=6.5,
+            markeredgecolor=p.surface,
+            markeredgewidth=1.6,
+            zorder=3,
+            label=g,
+        )
+        ax.annotate(
+            g,
+            (sub[x].iloc[-1], sub[value].iloc[-1]),
+            xytext=(7, 0),
+            textcoords="offset points",
+            color=p.secondary,
+            fontsize=9.5,
+            va="center",
+        )
     ax.legend(frameon=False, fontsize=9, loc="upper left", labelcolor=p.secondary)
     ax.set_xlabel(x.replace("_", " "), color=p.secondary, fontsize=9.5)
     ax.set_ylabel(value.replace("_", " "), color=p.secondary, fontsize=9.5)
@@ -427,8 +642,9 @@ def plot_dg_curve(frame, *, dark: bool = False, x="damage_fraction", value="DG_m
     return fig
 
 
-def plot_triage_map(report, *, dark: bool = False, log_novelty: bool = True,
-                    title: str = "Triage map"):
+def plot_triage_map(
+    report, *, dark: bool = False, log_novelty: bool = True, title: str = "Triage map"
+):
     """Novelty against conflict, with the four actions as quadrants.
 
     The picture makes the central claim visible: a strange spectrum and a
@@ -455,16 +671,49 @@ def plot_triage_map(report, *, dark: bool = False, log_novelty: bool = True,
 
     if "correct" in t:
         ok = t["correct"].to_numpy() == 1
-        ax.scatter(x[ok], yv[ok], s=26, facecolor=good, edgecolor=p.surface,
-                   linewidth=0.8, alpha=0.75, zorder=3, label="correct")
-        ax.scatter(x[~ok], yv[~ok], s=52, marker="X", facecolor=bad,
-                   edgecolor=p.surface, linewidth=1.0, zorder=4, label="incorrect")
+        ax.scatter(
+            x[ok],
+            yv[ok],
+            s=26,
+            facecolor=good,
+            edgecolor=p.surface,
+            linewidth=0.8,
+            alpha=0.75,
+            zorder=3,
+            label="correct",
+        )
+        ax.scatter(
+            x[~ok],
+            yv[~ok],
+            s=52,
+            marker="X",
+            facecolor=bad,
+            edgecolor=p.surface,
+            linewidth=1.0,
+            zorder=4,
+            label="incorrect",
+        )
         # Above the axes: the four corners are taken by the quadrant labels.
-        ax.legend(frameon=False, fontsize=9, ncol=2, labelcolor=p.secondary,
-                  loc="lower right", bbox_to_anchor=(1.0, 1.005), borderaxespad=0.0)
+        ax.legend(
+            frameon=False,
+            fontsize=9,
+            ncol=2,
+            labelcolor=p.secondary,
+            loc="lower right",
+            bbox_to_anchor=(1.0, 1.005),
+            borderaxespad=0.0,
+        )
     else:
-        ax.scatter(x, yv, s=26, facecolor=p.series[0], edgecolor=p.surface,
-                   linewidth=0.8, alpha=0.75, zorder=3)
+        ax.scatter(
+            x,
+            yv,
+            s=26,
+            facecolor=p.series[0],
+            edgecolor=p.surface,
+            linewidth=0.8,
+            alpha=0.75,
+            zorder=3,
+        )
 
     ax.axvline(1.0, color=p.secondary, linewidth=1.2, linestyle="--", zorder=2)
     ax.axhline(thr_c, color=p.secondary, linewidth=1.2, linestyle="--", zorder=2)
@@ -473,29 +722,49 @@ def plot_triage_map(report, *, dark: bool = False, log_novelty: bool = True,
     counts = report.action_counts
     # Quadrant labels in axes coordinates, inset from each corner.
     corners = {
-        "accept":    (0.015, 0.02, "left", "bottom"),
-        "review":    (0.015, 0.98, "left", "top"),
+        "accept": (0.015, 0.02, "left", "bottom"),
+        "review": (0.015, 0.98, "left", "top"),
         "remeasure": (0.985, 0.02, "right", "bottom"),
-        "reject":    (0.985, 0.98, "right", "top"),
+        "reject": (0.985, 0.98, "right", "top"),
     }
     for action, (fx, fy, ha, va) in corners.items():
-        ax.text(fx, fy, f"{action}\nn = {int(counts.get(action, 0))}",
-                transform=ax.transAxes, ha=ha, va=va, color=p.muted,
-                fontsize=9, linespacing=1.3, zorder=5)
+        ax.text(
+            fx,
+            fy,
+            f"{action}\nn = {int(counts.get(action, 0))}",
+            transform=ax.transAxes,
+            ha=ha,
+            va=va,
+            color=p.muted,
+            fontsize=9,
+            linespacing=1.3,
+            zorder=5,
+        )
 
-    ax.set_xlabel("novelty  (> 1 means unlike the training data)",
-                  color=p.secondary, fontsize=9.5)
-    ax.set_ylabel(f"conflict  ({report.thresholds['conflict_score']})",
-                  color=p.secondary, fontsize=9.5)
-    _title(ax, title, p,
-           f"review rate {report.thresholds['review_rate']:.0%} "
-           f"· {len(t)} signals")
+    ax.set_xlabel(
+        "novelty  (> 1 means unlike the training data)", color=p.secondary, fontsize=9.5
+    )
+    ax.set_ylabel(
+        f"conflict  ({report.thresholds['conflict_score']})",
+        color=p.secondary,
+        fontsize=9.5,
+    )
+    _title(
+        ax,
+        title,
+        p,
+        f"review rate {report.thresholds['review_rate']:.0%} · {len(t)} signals",
+    )
     fig.tight_layout()
     return fig
 
 
-def plot_risk_coverage(frame, *, dark: bool = False,
-                       title: str = "Accuracy retained as cases are handed off"):
+def plot_risk_coverage(
+    frame,
+    *,
+    dark: bool = False,
+    title: str = "Accuracy retained as cases are handed off",
+):
     """Risk-coverage curves for several flags.
 
     Ranks signals by each score and hands off the least trustworthy first. A
@@ -509,10 +778,21 @@ def plot_risk_coverage(frame, *, dark: bool = False,
     for i, name in enumerate(names):
         sub = frame[frame["score"].astype(str) == name].sort_values("coverage")
         c = p.series[i % len(p.series)]
-        ax.plot(sub["coverage"], sub["accuracy"], color=c, linewidth=2.0,
-                marker="o", markersize=6.5, markeredgecolor=p.surface,
-                markeredgewidth=1.6, zorder=3, label=name)
-        ends.append((name, float(sub.iloc[0]["coverage"]), float(sub.iloc[0]["accuracy"])))
+        ax.plot(
+            sub["coverage"],
+            sub["accuracy"],
+            color=c,
+            linewidth=2.0,
+            marker="o",
+            markersize=6.5,
+            markeredgecolor=p.surface,
+            markeredgewidth=1.6,
+            zorder=3,
+            label=name,
+        )
+        ends.append(
+            (name, float(sub.iloc[0]["coverage"]), float(sub.iloc[0]["accuracy"]))
+        )
     # Stagger the left-edge labels so close curves stay readable.
     lo = min(e[2] for e in ends)
     hi = max(e[2] for e in ends)
@@ -522,9 +802,17 @@ def plot_risk_coverage(frame, *, dark: bool = False,
         prev = max(placed.values(), default=-np.inf)
         placed[name] = max(cy, prev + gap) if placed else cy
     for name, cx, _ in ends:
-        ax.annotate(name, (cx, placed[name]), xytext=(-9, 0),
-                    textcoords="offset points", ha="right", va="center",
-                    color=p.secondary, fontsize=9, annotation_clip=False)
+        ax.annotate(
+            name,
+            (cx, placed[name]),
+            xytext=(-9, 0),
+            textcoords="offset points",
+            ha="right",
+            va="center",
+            color=p.secondary,
+            fontsize=9,
+            annotation_clip=False,
+        )
     ax.legend(frameon=False, fontsize=9, loc="lower right", labelcolor=p.secondary)
     ax.set_xlabel("coverage (share of signals kept)", color=p.secondary, fontsize=9.5)
     ax.set_ylabel("accuracy on the kept signals", color=p.secondary, fontsize=9.5)
@@ -534,8 +822,13 @@ def plot_risk_coverage(frame, *, dark: bool = False,
     return fig
 
 
-def plot_control_chart(report, *, dark: bool = False, statistic: str | None = None,
-                       title: str = "Per-band control chart"):
+def plot_control_chart(
+    report,
+    *,
+    dark: bool = False,
+    statistic: str | None = None,
+    title: str = "Per-band control chart",
+):
     """One batch against its limits, band by band.
 
     The vertical axis is standardised, so every statistic shares one scale and
@@ -568,22 +861,37 @@ def plot_control_chart(report, *, dark: bool = False, statistic: str | None = No
         out = sub["out_of_control"].to_numpy(dtype=bool)
         colour = p.series[si % len(p.series)]
         ax.vlines(x + off, 0, z, color=colour, lw=1.4, alpha=0.55, zorder=2)
-        ax.scatter(x + off, z, s=[110 if o else 64 for o in out],
-                   marker="X" if si else "o",
-                   color=[p.div_high if o else colour for o in out],
-                   edgecolor=p.surface, linewidth=1.6, zorder=3,
-                   label=stat.replace("_", " "))
+        ax.scatter(
+            x + off,
+            z,
+            s=[110 if o else 64 for o in out],
+            marker="X" if si else "o",
+            color=[p.div_high if o else colour for o in out],
+            edgecolor=p.surface,
+            linewidth=1.6,
+            zorder=3,
+            label=stat.replace("_", " "),
+        )
         for xi, (zi, oi) in enumerate(zip(z, out)):
             if oi and _np.isfinite(zi):
-                ax.annotate(f"{zi:+.0f}", (xi + off, zi), textcoords="offset points",
-                            xytext=(0, 9 if zi > 0 else -15), ha="center",
-                            fontsize=8.5, color=p.secondary)
+                ax.annotate(
+                    f"{zi:+.0f}",
+                    (xi + off, zi),
+                    textcoords="offset points",
+                    xytext=(0, 9 if zi > 0 else -15),
+                    ha="center",
+                    fontsize=8.5,
+                    color=p.secondary,
+                )
 
     ax.set_xticks(x)
-    ax.set_xticklabels([f"{lab}\n{lo[lab]:.0f}-{hi[lab]:.0f}" for lab in labels],
-                       color=p.secondary, fontsize=8.5)
+    ax.set_xticklabels(
+        [f"{lab}\n{lo[lab]:.0f}-{hi[lab]:.0f}" for lab in labels],
+        color=p.secondary,
+        fontsize=8.5,
+    )
     ax.set_xlabel(f"band  ({axis_name})", color=p.secondary)
-    ax.set_ylabel(f"standardised deviation from the reference", color=p.secondary)
+    ax.set_ylabel("standardised deviation from the reference", color=p.secondary)
     # Bound by the data, not symmetrically: drift is usually one-signed and a
     # mirrored axis would waste half the chart. Both limit lines stay visible.
     z_all = table["z"].to_numpy(dtype=float)
@@ -593,20 +901,39 @@ def plot_control_chart(report, *, dark: bool = False, statistic: str | None = No
     pad = 0.08 * (zhi - zlo)
     ax.set_ylim(zlo - pad, zhi + pad)
     ax.grid(axis="x", visible=False)
-    state = "in control" if report.is_in_control else (
-        f"{report.n_out_of_control} outside the limits: "
-        + ", ".join(report.bands_out_of_control()))
-    _title(ax, f"{title} - {report.name}", p,
-           sub=f"{report.n_samples} spectra, no labels used  |  {state}")
+    state = (
+        "in control"
+        if report.is_in_control
+        else (
+            f"{report.n_out_of_control} outside the limits: "
+            + ", ".join(report.bands_out_of_control())
+        )
+    )
+    _title(
+        ax,
+        f"{title} - {report.name}",
+        p,
+        sub=f"{report.n_samples} spectra, no labels used  |  {state}",
+    )
     if len(stats) > 1:
-        ax.legend(frameon=False, fontsize=8.8, labelcolor=p.secondary, ncol=len(stats),
-                  loc="upper left")
+        ax.legend(
+            frameon=False,
+            fontsize=8.8,
+            labelcolor=p.secondary,
+            ncol=len(stats),
+            loc="upper left",
+        )
     fig.tight_layout()
     return fig
 
 
-def plot_control_trend(frame, *, dark: bool = False, k: float | None = None,
-                       title: str = "Drift across batches"):
+def plot_control_trend(
+    frame,
+    *,
+    dark: bool = False,
+    k: float | None = None,
+    title: str = "Drift across batches",
+):
     """The drift score of each batch in order, with the control threshold.
 
     Takes the frame returned by :meth:`pypasi.ControlProfile.check_many`. This
@@ -624,20 +951,42 @@ def plot_control_trend(frame, *, dark: bool = False, k: float | None = None,
     ax.axhspan(0, k, color=p.grid, alpha=0.55, zorder=0)
     ax.axhline(k, color=p.div_high, lw=1.2, ls="--", zorder=1)
     ax.plot(x, y, color=p.series[0], lw=1.8, zorder=2)
-    ax.scatter(x, y, s=[105 if o else 60 for o in out],
-               color=[p.div_high if o else p.series[0] for o in out],
-               edgecolor=p.surface, linewidth=1.6, zorder=3)
-    ax.text(len(frame) - 0.5, k, f" {k:g} sigma", color=p.div_high, fontsize=8.5,
-            va="bottom", ha="right")
+    ax.scatter(
+        x,
+        y,
+        s=[105 if o else 60 for o in out],
+        color=[p.div_high if o else p.series[0] for o in out],
+        edgecolor=p.surface,
+        linewidth=1.6,
+        zorder=3,
+    )
+    ax.text(
+        len(frame) - 0.5,
+        k,
+        f" {k:g} sigma",
+        color=p.div_high,
+        fontsize=8.5,
+        va="bottom",
+        ha="right",
+    )
     ax.set_xticks(x)
-    ax.set_xticklabels(frame["batch"].astype(str), color=p.secondary, fontsize=8.8,
-                       rotation=25, ha="right")
+    ax.set_xticklabels(
+        frame["batch"].astype(str),
+        color=p.secondary,
+        fontsize=8.8,
+        rotation=25,
+        ha="right",
+    )
     ax.set_ylabel("drift score  (largest |z| in the batch)", color=p.secondary)
     ax.set_ylim(0, max(k * 1.35, float(_np.nanmax(y)) * 1.18 if len(y) else k))
     ax.grid(axis="x", visible=False)
     n_out = int(out.sum())
-    _title(ax, title, p,
-           sub=f"{len(frame)} batches, {n_out} outside the limits  |  "
-               f"statistic: {frame.attrs.get('statistic', 'mean_stress').replace('_', ' ')}")
+    _title(
+        ax,
+        title,
+        p,
+        sub=f"{len(frame)} batches, {n_out} outside the limits  |  "
+        f"statistic: {frame.attrs.get('statistic', 'mean_stress').replace('_', ' ')}",
+    )
     fig.tight_layout()
     return fig

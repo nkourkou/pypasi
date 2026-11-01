@@ -46,17 +46,17 @@ that does no better than "the softmax was low" is not worth building.
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
 __all__ = [
-    "WeakOrientationWarning",
     "ACTIONS",
     "NoveltyDetector",
     "Triage",
     "TriageReport",
+    "WeakOrientationWarning",
     "compare_conflict_scores",
     "risk_coverage",
 ]
@@ -116,15 +116,22 @@ class NoveltyDetector:
     spe_threshold_, t2_threshold_ : float
     """
 
-    def __init__(self, n_components: int = 10, *, q: float = 0.99, scale: bool = True,
-                 svd_solver: str = "full", random_state=None):
+    def __init__(
+        self,
+        n_components: int = 10,
+        *,
+        q: float = 0.99,
+        scale: bool = True,
+        svd_solver: str = "full",
+        random_state=None,
+    ):
         self.n_components = n_components
         self.q = float(q)
         self.scale = scale
         self.svd_solver = svd_solver
         self.random_state = random_state
 
-    def fit(self, X) -> "NoveltyDetector":
+    def fit(self, X) -> NoveltyDetector:
         from sklearn.decomposition import PCA
         from sklearn.preprocessing import StandardScaler
 
@@ -136,9 +143,11 @@ class NoveltyDetector:
         self.n_components_ = int(max(1, min(self.n_components, *X.shape)))
         self.scaler_ = StandardScaler().fit(X) if self.scale else None
         Xs = self.scaler_.transform(X) if self.scale else X
-        self.pca_ = PCA(n_components=self.n_components_,
-                        svd_solver=self.svd_solver,
-                        random_state=self.random_state).fit(Xs)
+        self.pca_ = PCA(
+            n_components=self.n_components_,
+            svd_solver=self.svd_solver,
+            random_state=self.random_state,
+        ).fit(Xs)
         spe, t2 = self._raw(Xs)
         self.spe_threshold_ = float(np.quantile(spe, self.q))
         self.t2_threshold_ = float(np.quantile(t2, self.q))
@@ -267,8 +276,9 @@ class Triage:
 
     # -------------------------------------------------------------------- fit
 
-    def fit(self, classifier, X_cal, y_cal=None, *, orient_on=None,
-            orientation_data=None) -> "Triage":
+    def fit(
+        self, classifier, X_cal, y_cal=None, *, orient_on=None, orientation_data=None
+    ) -> Triage:
         """Calibrate on clean signals the classifier was trained on or validated against.
 
         Nothing about the classifier is refitted. Calibration only records what
@@ -321,7 +331,9 @@ class Triage:
         ).fit(X_cal)
 
         audit = classifier.audit(X_cal, y_cal)
-        raw, active = _conflict_from_audit(audit, self.conflict_score, self.gate_quantile)
+        raw, active = _conflict_from_audit(
+            audit, self.conflict_score, self.gate_quantile
+        )
 
         # Which direction of the trajectory descriptor indicates trouble is not
         # universal - the manuscript reports the eREDG audit as dataset-dependent
@@ -340,36 +352,44 @@ class Triage:
             if target.size != len(X_o):
                 raise ValueError(
                     f"orientation_data target has {target.size} entries for "
-                    f"{len(X_o)} signals")
+                    f"{len(X_o)} signals"
+                )
             if orient_on is not None:
-                raise ValueError(
-                    "pass either orient_on or orientation_data, not both")
+                raise ValueError("pass either orient_on or orientation_data, not both")
             audit_o = classifier.audit(X_o)
             orient_raw, orient_active = _conflict_from_audit(
-                audit_o, self.conflict_score, self.gate_quantile)
+                audit_o, self.conflict_score, self.gate_quantile
+            )
         elif orient_on is not None:
             target = np.asarray(orient_on).astype(int).reshape(-1)
             target_name = "the supplied target"
             if target.size != len(X_cal):
                 raise ValueError(
                     f"orient_on has {target.size} entries for {len(X_cal)} "
-                    "calibration signals")
+                    "calibration signals"
+                )
         elif y_cal is not None:
-            pred = (audit.y_pred_labels if audit.y_pred_labels is not None
-                    else audit.result.y_pred)
+            pred = (
+                audit.y_pred_labels
+                if audit.y_pred_labels is not None
+                else audit.result.y_pred
+            )
             target = (pred != np.asarray(y_cal)).astype(int)
 
         if target is not None and len(np.unique(target)) > 1:
             from sklearn.metrics import roc_auc_score
 
-            auc = (float(roc_auc_score(target[orient_active], orient_raw[orient_active]))
-                   if orient_active.sum() > 2
-                   else float(roc_auc_score(target, orient_raw)))
+            auc = (
+                float(roc_auc_score(target[orient_active], orient_raw[orient_active]))
+                if orient_active.sum() > 2
+                else float(roc_auc_score(target, orient_raw))
+            )
             self.conflict_sign_ = -1 if auc < 0.5 else 1
             self.calibration_auroc_ = max(auc, 1.0 - auc)
             self.orientation_margin_ = abs(auc - 0.5)
             self.orientation_source_ = (
-                f"learned on {target_name} (AUROC {self.calibration_auroc_:.3f})")
+                f"learned on {target_name} (AUROC {self.calibration_auroc_:.3f})"
+            )
             if self.orientation_margin_ < 0.05:
                 warnings.warn(
                     f"the orientation of {self.conflict_score!r} was decided on an "
@@ -379,15 +399,20 @@ class Triage:
                     f"that separates at p into one that separates at 1-p. If the "
                     f"event you want flagged is not {target_name}, pass "
                     f"orient_on= with labels for the event you mean.",
-                    WeakOrientationWarning, stacklevel=2)
+                    WeakOrientationWarning,
+                    stacklevel=2,
+                )
         conflict = _orient(raw, active, self.conflict_sign_)
         self.conflict_threshold_ = float(np.quantile(conflict, 1.0 - self.review_rate))
         self.calibration_conflict_ = conflict
         self.calibration_confidence_ = audit.result.proba.max(axis=1)
         self.calibration_wrong_ = None
         if y_cal is not None:
-            pred = (audit.y_pred_labels if audit.y_pred_labels is not None
-                    else audit.result.y_pred)
+            pred = (
+                audit.y_pred_labels
+                if audit.y_pred_labels is not None
+                else audit.result.y_pred
+            )
             self.calibration_wrong_ = (pred != np.asarray(y_cal)).astype(int)
         return self
 
@@ -402,7 +427,9 @@ class Triage:
         X = np.asarray(X, dtype=float)
         audit = self.classifier_.audit(X, y, regime=regime)
         nov = self.novelty_.score(X)
-        raw, active = _conflict_from_audit(audit, self.conflict_score, self.gate_quantile)
+        raw, active = _conflict_from_audit(
+            audit, self.conflict_score, self.gate_quantile
+        )
         conflict = _orient(raw, active, self.conflict_sign_)
         confidence = audit.result.proba.max(axis=1)
         return audit, nov, conflict, confidence
@@ -421,13 +448,15 @@ class Triage:
         conflicted = conflict > self.conflict_threshold_
 
         action = np.where(
-            novel & conflicted, "reject",
+            novel & conflicted,
+            "reject",
             np.where(novel, "remeasure", np.where(conflicted, "review", "accept")),
         )
         table = pd.DataFrame(
             {
                 "sample": np.arange(len(conflict)),
-                "prediction": audit.y_pred_labels if audit.y_pred_labels is not None
+                "prediction": audit.y_pred_labels
+                if audit.y_pred_labels is not None
                 else audit.result.y_pred,
                 "confidence": confidence,
                 "spe": nov["spe"].to_numpy(),
@@ -438,8 +467,10 @@ class Triage:
                 "is_conflicted": conflicted,
                 "action": action,
                 "reason": [_ACTION_REASON[a] for a in action],
-                "worst_band": [audit.bands.labels[i]
-                               for i in np.argmax(audit.result.mean_stress, axis=1)],
+                "worst_band": [
+                    audit.bands.labels[i]
+                    for i in np.argmax(audit.result.mean_stress, axis=1)
+                ],
             }
         )
         if y is not None:
@@ -493,7 +524,11 @@ class Triage:
 
         audit, nov, conflict, confidence = self._scores(X, y, regime)
         y = np.asarray(y)
-        pred = audit.y_pred_labels if audit.y_pred_labels is not None else audit.result.y_pred
+        pred = (
+            audit.y_pred_labels
+            if audit.y_pred_labels is not None
+            else audit.result.y_pred
+        )
         wrong = (pred != y).astype(int)
         novelty = nov["novelty"].to_numpy()
 
@@ -508,8 +543,11 @@ class Triage:
             for name, s in scores.items():
                 w = wrong if mask is None else wrong[mask]
                 v = s if mask is None else s[mask]
-                out[name] = (float(roc_auc_score(w, v))
-                             if len(np.unique(w)) > 1 else float("nan"))
+                out[name] = (
+                    float(roc_auc_score(w, v))
+                    if len(np.unique(w)) > 1
+                    else float("nan")
+                )
             return out
 
         separation = pd.DataFrame(
@@ -523,22 +561,28 @@ class Triage:
             {"score": list(cond), "auroc_error_in_distribution": list(cond.values())}
         )
         conditional.attrs["n_in_distribution"] = n_in
-        conditional.attrs["n_total"] = int(len(y))
+        conditional.attrs["n_total"] = len(y)
 
         # The claim the manuscript actually makes: a conflicted prediction is
         # worth flagging *even when the classifier is confident about it*. Test
         # it where it matters, on the confident half of the cohort.
         confident = confidence >= np.median(confidence)
         n_conf = int(confident.sum())
-        conf_auc = (_auc(confident & in_dist)
-                    if (confident & in_dist).sum() > 2
-                    else {k: float("nan") for k in scores})
+        conf_auc = (
+            _auc(confident & in_dist)
+            if (confident & in_dist).sum() > 2
+            else {k: float("nan") for k in scores}
+        )
         among_confident = pd.DataFrame(
             {"score": list(conf_auc), "auroc_error_confident": list(conf_auc.values())}
         )
-        among_confident.attrs["n_confident_in_distribution"] = int((confident & in_dist).sum())
+        among_confident.attrs["n_confident_in_distribution"] = int(
+            (confident & in_dist).sum()
+        )
         among_confident.attrs["n_confident"] = n_conf
-        among_confident.attrs["n_errors_in_stratum"] = int(wrong[confident & in_dist].sum())
+        among_confident.attrs["n_errors_in_stratum"] = int(
+            wrong[confident & in_dist].sum()
+        )
 
         rho, pval = spearmanr(novelty, conflict)
         both = (novelty > 1.0) & (conflict > self.conflict_threshold_)
@@ -546,9 +590,15 @@ class Triage:
         orthogonality = {
             "spearman_rho": float(rho),
             "p_value": float(pval),
-            "jaccard_overlap": float(both.sum() / either.sum()) if either.any() else 0.0,
-            "n_novel_only": int(((novelty > 1.0) & ~(conflict > self.conflict_threshold_)).sum()),
-            "n_conflicted_only": int((~(novelty > 1.0) & (conflict > self.conflict_threshold_)).sum()),
+            "jaccard_overlap": float(both.sum() / either.sum())
+            if either.any()
+            else 0.0,
+            "n_novel_only": int(
+                ((novelty > 1.0) & ~(conflict > self.conflict_threshold_)).sum()
+            ),
+            "n_conflicted_only": int(
+                (~(novelty > 1.0) & (conflict > self.conflict_threshold_)).sum()
+            ),
             "n_both": int(both.sum()),
         }
 
@@ -561,20 +611,28 @@ class Triage:
         # the two equally would be unfair to whichever is stronger, so the
         # weights are fitted on the calibration data and only applied here.
         conflict_name = f"conflict ({self.conflict_score})"
-        auc_conf = (float(roc_auc_score(wrong, 1.0 - confidence))
-                    if len(np.unique(wrong)) > 1 else np.nan)
+        auc_conf = (
+            float(roc_auc_score(wrong, 1.0 - confidence))
+            if len(np.unique(wrong)) > 1
+            else np.nan
+        )
         auc_comb, note = np.nan, "needs calibration labels"
-        if (self.calibration_wrong_ is not None
-                and len(np.unique(self.calibration_wrong_)) > 1
-                and len(np.unique(wrong)) > 1):
+        if (
+            self.calibration_wrong_ is not None
+            and len(np.unique(self.calibration_wrong_)) > 1
+            and len(np.unique(wrong)) > 1
+        ):
             from sklearn.linear_model import LogisticRegression
-            from sklearn.preprocessing import StandardScaler
             from sklearn.pipeline import make_pipeline
+            from sklearn.preprocessing import StandardScaler
 
-            cal = np.column_stack([1.0 - self.calibration_confidence_,
-                                   self.calibration_conflict_])
+            cal = np.column_stack(
+                [1.0 - self.calibration_confidence_, self.calibration_conflict_]
+            )
             new = np.column_stack([1.0 - confidence, conflict])
-            combiner = make_pipeline(StandardScaler(), LogisticRegression(max_iter=1000))
+            combiner = make_pipeline(
+                StandardScaler(), LogisticRegression(max_iter=1000)
+            )
             combiner.fit(cal, self.calibration_wrong_)
             auc_comb = float(roc_auc_score(wrong, combiner.predict_proba(new)[:, 1]))
             note = "weights fitted on calibration data"
@@ -594,21 +652,27 @@ class Triage:
                 f"none of the scores can be evaluated against error: the model "
                 f"got {int(len(wrong) - wrong.sum())} of {len(wrong)} predictions "
                 f"right, so there is only one class of outcome and an AUROC is "
-                f"undefined. Evaluate on a cohort the model makes mistakes on.")
+                f"undefined. Evaluate on a cohort the model makes mistakes on."
+            )
         best_uncond = separation.loc[separation["auroc_error"].idxmax(), "score"]
         sep = separation.set_index("score")
         summary = {
             "conflict_beats_confidence": bool(
-                sep.loc[conflict_name, "auroc_error"] > sep.loc["1 - confidence", "auroc_error"]
+                sep.loc[conflict_name, "auroc_error"]
+                > sep.loc["1 - confidence", "auroc_error"]
             ),
             "conflict_adds_to_confidence": bool(incremental["gain"] > 0.01),
             "conflict_survives_conditioning": bool(
                 conditional.set_index("score").loc[
-                    conflict_name, "auroc_error_in_distribution"] > 0.55
+                    conflict_name, "auroc_error_in_distribution"
+                ]
+                > 0.55
             ),
             "conflict_informative_among_confident": bool(
                 among_confident.set_index("score").loc[
-                    conflict_name, "auroc_error_confident"] > 0.55
+                    conflict_name, "auroc_error_confident"
+                ]
+                > 0.55
             ),
             "novelty_and_conflict_uncorrelated": bool(abs(rho) < 0.3),
             "best_unconditional_score": str(best_uncond),
@@ -655,7 +719,7 @@ def risk_coverage(score, wrong, coverages=None) -> pd.DataFrame:
     if coverages is None:
         coverages = np.round(np.arange(1.0, 0.45, -0.1), 3)
 
-    order = np.argsort(score, kind="stable")   # most trustworthy first
+    order = np.argsort(score, kind="stable")  # most trustworthy first
     total_errors = int(wrong.sum())
     n = len(score)
     rows = []
@@ -663,15 +727,17 @@ def risk_coverage(score, wrong, coverages=None) -> pd.DataFrame:
         k = max(1, int(round(float(c) * n)))
         kept = order[:k]
         err = int(wrong[kept].sum())
-        rows.append({
-            "coverage": float(c),
-            "n_kept": k,
-            "accuracy": 1.0 - err / k,
-            "errors_remaining": err,
-            "errors_caught_fraction": (
-                (total_errors - err) / total_errors if total_errors else np.nan
-            ),
-        })
+        rows.append(
+            {
+                "coverage": float(c),
+                "n_kept": k,
+                "accuracy": 1.0 - err / k,
+                "errors_remaining": err,
+                "errors_caught_fraction": (
+                    (total_errors - err) / total_errors if total_errors else np.nan
+                ),
+            }
+        )
     df = pd.DataFrame(rows)
     risks = 1.0 - df["accuracy"].to_numpy()
     df.attrs["aurc"] = float(np.trapezoid(risks[::-1], df["coverage"].to_numpy()[::-1]))
@@ -714,15 +780,24 @@ def compare_conflict_scores(
         ev = tri.evaluate(X_eval, y_eval)
         name = f"conflict ({kind})"
         sep = ev["separation"].set_index("score")
-        rows.append({
-            "conflict_score": kind,
-            "sign": tri.conflict_sign_,
-            "auroc_error": sep.loc[name, "auroc_error"],
-            "auroc_error_in_distribution": ev["conditional"].set_index("score").loc[
-                name, "auroc_error_in_distribution"],
-            "auroc_confidence": sep.loc["1 - confidence", "auroc_error"],
-            "gain_over_confidence": ev["incremental"]["gain"],
-            "worth_using": bool(ev["summary"]["conflict_adds_to_confidence"]
-                                or ev["summary"]["conflict_beats_confidence"]),
-        })
-    return pd.DataFrame(rows).sort_values("auroc_error", ascending=False).reset_index(drop=True)
+        rows.append(
+            {
+                "conflict_score": kind,
+                "sign": tri.conflict_sign_,
+                "auroc_error": sep.loc[name, "auroc_error"],
+                "auroc_error_in_distribution": ev["conditional"]
+                .set_index("score")
+                .loc[name, "auroc_error_in_distribution"],
+                "auroc_confidence": sep.loc["1 - confidence", "auroc_error"],
+                "gain_over_confidence": ev["incremental"]["gain"],
+                "worth_using": bool(
+                    ev["summary"]["conflict_adds_to_confidence"]
+                    or ev["summary"]["conflict_beats_confidence"]
+                ),
+            }
+        )
+    return (
+        pd.DataFrame(rows)
+        .sort_values("auroc_error", ascending=False)
+        .reset_index(drop=True)
+    )

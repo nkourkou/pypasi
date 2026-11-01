@@ -23,7 +23,6 @@ from pypasi.chemometrics import PCALDA
 from pypasi.datasets import make_conflict_signals
 from pypasi.triage import NoveltyDetector, Triage
 
-
 # scikit-learn's "auto" solver only switches to the randomized path once the
 # cohort is bigger than 500 in its larger dimension. A smaller fixture would
 # take the exact path anyway and every assertion below would pass against the
@@ -33,8 +32,9 @@ N_SAMPLES, N_POINTS = 600, 400
 
 @pytest.fixture(scope="module")
 def cohort():
-    X, y, axis, _ = make_conflict_signals(n_samples=N_SAMPLES, n_classes=3,
-                                          n_points=N_POINTS, random_state=0)
+    X, y, axis, _ = make_conflict_signals(
+        n_samples=N_SAMPLES, n_classes=3, n_points=N_POINTS, random_state=0
+    )
     return X, y, axis
 
 
@@ -57,7 +57,8 @@ def test_the_fixture_actually_exercises_the_randomized_solver(cohort):
     assert not np.array_equal(components(0), components(5000)), (
         "sklearn's auto solver is exact on this cohort, so the determinism "
         "tests below would pass even against the unpatched code - enlarge the "
-        "fixture until this assertion holds again")
+        "fixture until this assertion holds again"
+    )
 
 
 def _disturb(n):

@@ -27,7 +27,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-__all__ = ["Gate", "AbsoluteGate", "QuantileGate", "RankGate", "resolve_gate"]
+__all__ = ["AbsoluteGate", "Gate", "QuantileGate", "RankGate", "resolve_gate"]
 
 
 class Gate(ABC):
@@ -42,7 +42,7 @@ class Gate(ABC):
     def _raw_mask(self, stress: np.ndarray) -> np.ndarray:
         """Return the unguarded mute mask for ``stress`` of shape ``(n, k)``."""
 
-    def fit(self, stress: np.ndarray) -> "Gate":
+    def fit(self, stress: np.ndarray) -> Gate:
         """Calibrate on a reference stress distribution. No-op for most gates."""
         return self
 
@@ -50,7 +50,9 @@ class Gate(ABC):
         """Boolean mute mask of shape ``(n_samples, n_bands)``."""
         stress = np.asarray(stress, dtype=float)
         if stress.ndim != 2:
-            raise ValueError(f"stress must be 2-D (n_samples, n_bands), got {stress.shape}")
+            raise ValueError(
+                f"stress must be 2-D (n_samples, n_bands), got {stress.shape}"
+            )
         m = self._raw_mask(stress)
         if self.protect_min > 0:
             m = _protect_quietest(m, stress, self.protect_min)
@@ -114,11 +116,13 @@ class QuantileGate(Gate):
         self.q = float(q)
         self.tau_: float | None = None
 
-    def fit(self, stress: np.ndarray) -> "QuantileGate":
+    def fit(self, stress: np.ndarray) -> QuantileGate:
         s = np.asarray(stress, dtype=float).reshape(-1)
         s = s[np.isfinite(s)]
         if s.size == 0:
-            raise ValueError("cannot calibrate a QuantileGate on an empty stress sample")
+            raise ValueError(
+                "cannot calibrate a QuantileGate on an empty stress sample"
+            )
         self.tau_ = float(np.quantile(s, self.q))
         return self
 
@@ -180,7 +184,9 @@ def resolve_gate(spec) -> Gate:
         if key == "rank":
             return RankGate()
         if key == "absolute":
-            raise ValueError("AbsoluteGate needs a threshold; pass AbsoluteGate(tau=...)")
+            raise ValueError(
+                "AbsoluteGate needs a threshold; pass AbsoluteGate(tau=...)"
+            )
     raise TypeError(
         f"cannot interpret {spec!r} as a gate; pass a Gate instance, a float "
         "threshold, or 'quantile'/'rank'"

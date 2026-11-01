@@ -29,7 +29,7 @@ Reading the limits honestly
 ---------------------------
 Two things decide whether a chart is worth trusting.
 
-*Where the reference came from.* 
+*Where the reference came from.*
 Control limits are only as good as the batches they were built from. Reference
 batches carved at random out of one cohort share an instrument, an operator and
 a session, so the spread between them understates real batch-to-batch variation
@@ -43,6 +43,21 @@ now and then - roughly one batch in thirty even when nothing is wrong. A lone
 breach is a reason to look; several bands at once, or the same band across
 consecutive batches, is a reason to act. :meth:`ControlProfile.check_many` and
 :func:`pypasi.viz.plot_control_trend` exist for exactly that reading.
+
+Two families of statistics
+--------------------------
+The negotiation statistics (``mean_stress``, ``band_confidence`` and the rest)
+ask whether a batch *disturbs the fitted model* in a given band. The residual
+statistics (``residual_q``, ``residual_mean``, new in 0.5.4) ask whether the
+*input itself* has changed in that band, measured as the part of each spectrum a
+PCA model of the training spectra cannot reconstruct, split by band. They need
+a fitted :class:`pypasi.NoveltyDetector` passed as ``residual_model``.
+
+The two answer different questions and can be charted together under one
+calibrated limit. A residual statistic responds to anything new in a band,
+including new biology; a negotiation statistic responds only when that change
+makes the band models disagree. Charting both tells an acquisition change that
+unsettles the model apart from a new kind of specimen that does not.
 """
 
 from __future__ import annotations
@@ -55,20 +70,30 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-__all__ = ["ControlProfile", "ControlReport", "MONITORED_STATISTICS"]
+__all__ = [
+    "MONITORED_STATISTICS",
+    "RESIDUAL_STATISTICS",
+    "ControlProfile",
+    "ControlReport",
+]
 
 
 #: Band-level quantities that can be charted. All come from
 #: :meth:`pypasi.AuditResult.conflict_table`.
 MONITORED_STATISTICS = (
-    "mean_stress",         # disagreement with neighbouring bands
-    "band_confidence",     # how sure the band's own model is, before negotiation
-    "informed_conflict",   # stress discounted by how much the band had to say
-    "band_DG",             # this band's share of the reconciliation effort
-    "mute_frequency",      # how often the gate silenced it
+    "mean_stress",  # disagreement with neighbouring bands
+    "band_confidence",  # how sure the band's own model is, before negotiation
+    "informed_conflict",  # stress discounted by how much the band had to say
+    "band_DG",  # this band's share of the reconciliation effort
+    "mute_frequency",  # how often the gate silenced it
     "cumulative_stress",
     "final_weight",
+    "residual_q",  # log mean squared PCA residual within the band (needs residual_model)
+    "residual_mean",  # mean signed PCA residual within the band (needs residual_model)
 )
+
+#: Statistics computed from a PCA residual model rather than from the negotiation.
+RESIDUAL_STATISTICS = ("residual_q", "residual_mean")
 
 _DEFAULT_STATISTICS = ("mean_stress", "band_confidence")
 
@@ -90,8 +115,38 @@ def _fingerprint(bands, statistics, classes) -> dict:
         "edges": [round(float(v), 6) for v in bands.edges],
         "axis_name": bands.axis_name,
         "statistics": list(statistics),
-        "n_classes": int(len(classes)) if classes is not None else None,
+        "n_classes": len(classes) if classes is not None else None,
     }
+
+
+def _residual_fingerprint(model) -> dict:
+    return {
+        "n_components": int(model.pca_.n_components_),
+        "n_features": int(model.pca_.components_.shape[1]),
+        "scaled": getattr(model, "scaler_", None) is not None,
+    }
+
+
+def _residual_stats(model, bands, X) -> dict:
+    """Per-band PCA residual statistics of one batch.
+
+    ``residual_q`` is the batch mean of the log mean squared residual inside the
+    band: the band's share of the Q statistic, per feature, on a log scale so
+    that batch means are close to normal. ``residual_mean`` is the batch mean of
+    the signed residual inside the band, which keeps the direction a Q statistic
+    throws away (a band that gains intensity and one that loses it look alike in
+    Q, not here).
+    """
+    Xs = (
+        model.scaler_.transform(X) if getattr(model, "scaler_", None) is not None else X
+    )
+    R = Xs - model.pca_.inverse_transform(model.pca_.transform(Xs))
+    q, m = [], []
+    for b in bands:
+        rb = R[:, b.features]
+        q.append(float(np.log(np.mean(rb**2, axis=1) + 1e-12).mean()))
+        m.append(float(rb.mean()))
+    return {"residual_q": q, "residual_mean": m}
 
 
 @dataclass
@@ -157,16 +212,20 @@ class ControlReport:
     def summary(self) -> str:
         if not len(self.table):
             return f"{self.name}: nothing to report"
-        head = (f"{self.name}: {self.n_samples} spectra, "
-                f"{self.n_out_of_control} of {len(self.table)} band-statistics "
-                f"outside {self.k:g} sigma")
+        head = (
+            f"{self.name}: {self.n_samples} spectra, "
+            f"{self.n_out_of_control} of {len(self.table)} band-statistics "
+            f"outside {self.k:g} sigma"
+        )
         if self.is_in_control:
             return head + "  IN CONTROL"
         w = self.worst
         lo, hi = w[f"{self.axis_name}_lo"], w[f"{self.axis_name}_hi"]
         bad = ", ".join(self.bands_out_of_control())
-        return (f"{head}\n  worst: {w['label']} ({lo:.0f}-{hi:.0f} {self.axis_name}) "
-                f"on {w['statistic']}, z = {w['z']:+.1f}\n  bands flagged: {bad}")
+        return (
+            f"{head}\n  worst: {w['label']} ({lo:.0f}-{hi:.0f} {self.axis_name}) "
+            f"on {w['statistic']}, z = {w['z']:+.1f}\n  bands flagged: {bad}"
+        )
 
     def to_frame(self) -> pd.DataFrame:
         return self.table.copy()
@@ -260,14 +319,27 @@ class ControlProfile:
     fingerprint_: dict = field(default_factory=dict, repr=False)
     reference_batches_: pd.DataFrame | None = field(default=None, repr=False)
     _estimator = None
+    _residual_model = None
 
     # ------------------------------------------------------------------ fit
 
     @classmethod
-    def fit(cls, estimator, X=None, *, batches=None, n_batches: int = 20,
-            statistics=_DEFAULT_STATISTICS, k: float = 3.0, method: str = "sigma",
-            laser_nm: float | None = None, decompose_variance: bool = True,
-            multiplicity: str = "empirical", random_state=None) -> "ControlProfile":
+    def fit(
+        cls,
+        estimator,
+        X=None,
+        *,
+        batches=None,
+        n_batches: int = 20,
+        statistics=_DEFAULT_STATISTICS,
+        k: float = 3.0,
+        method: str = "sigma",
+        laser_nm: float | None = None,
+        decompose_variance: bool = True,
+        multiplicity: str = "empirical",
+        random_state=0,
+        residual_model=None,
+    ) -> ControlProfile:
         """Learn the in-control distribution of a fitted model's band statistics.
 
         Parameters
@@ -284,6 +356,18 @@ class ControlProfile:
             instrument, so the limits they produce are too tight.
         n_batches
             Number of random groups to carve from ``X``.
+        residual_model
+            A fitted :class:`pypasi.NoveltyDetector`, required when
+            ``statistics`` includes any of :data:`RESIDUAL_STATISTICS`. Fit it on
+            the spectra the estimator was fitted on, not on the reference
+            batches, for the same reason the reference is held out of the
+            estimator.
+        random_state
+            Seed for the random half-splits that separate within-batch noise
+            from between-batch variation, and for the random batches carved
+            from ``X``. Defaults to 0, so that the same reference gives the same
+            limits on every run; before 0.5.5 it defaulted to ``None`` and the
+            limits changed from run to run.
         """
         if method not in ("sigma", "quantile"):
             raise ValueError(f"method must be 'sigma' or 'quantile', got {method!r}")
@@ -291,7 +375,8 @@ class ControlProfile:
         unknown = [s for s in statistics if s not in MONITORED_STATISTICS]
         if unknown:
             raise ValueError(
-                f"unknown statistic(s) {unknown}; choose from {list(MONITORED_STATISTICS)}")
+                f"unknown statistic(s) {unknown}; choose from {list(MONITORED_STATISTICS)}"
+            )
         if k <= 0:
             raise ValueError(f"k must be positive, got {k}")
 
@@ -304,7 +389,8 @@ class ControlProfile:
                 raise ValueError(f"need at least 2 reference batches, got {n_batches}")
             if n_batches > X.shape[0]:
                 raise ValueError(
-                    f"asked for {n_batches} batches from {X.shape[0]} spectra")
+                    f"asked for {n_batches} batches from {X.shape[0]} spectra"
+                )
             batches = [X[idx] for idx in _split(X.shape[0], n_batches, rng)]
             warnings.warn(
                 "Control limits built from a random split of one cohort. Those "
@@ -315,30 +401,56 @@ class ControlProfile:
                 "you have them, and make sure the reference was held out of "
                 "fitting - a profile built on the model's own training spectra "
                 "describes in-sample behaviour and flags everything after it.",
-                UserWarning, stacklevel=2)
+                UserWarning,
+                stacklevel=2,
+            )
         else:
             batches = [np.asarray(b, float) for b in batches]
             if len(batches) < 2:
-                raise ValueError(f"need at least 2 reference batches, got {len(batches)}")
+                raise ValueError(
+                    f"need at least 2 reference batches, got {len(batches)}"
+                )
 
         if len(batches) < 8:
             warnings.warn(
                 f"only {len(batches)} reference batches: the standard deviation "
                 f"behind these limits is poorly determined. Consider "
                 f"method='quantile', which assumes nothing about the "
-                f"distribution.", UserWarning, stacklevel=2)
+                f"distribution.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         if multiplicity not in ("none", "sidak", "bonferroni", "empirical"):
             raise ValueError(
                 f"unknown multiplicity {multiplicity!r}; use 'empirical', "
-                "'sidak', 'bonferroni' or 'none'")
-        self = cls(statistics=statistics, k=float(k), method=method, laser_nm=laser_nm,
-                   decompose_variance=bool(decompose_variance),
-                   multiplicity=str(multiplicity))
+                "'sidak', 'bonferroni' or 'none'"
+            )
+        self = cls(
+            statistics=statistics,
+            k=float(k),
+            method=method,
+            laser_nm=laser_nm,
+            decompose_variance=bool(decompose_variance),
+            multiplicity=str(multiplicity),
+        )
+        if any(s in RESIDUAL_STATISTICS for s in statistics):
+            self._set_residual_model(residual_model, estimator)
+        elif residual_model is not None:
+            warnings.warn(
+                "residual_model given but no residual statistic requested; "
+                f"add one of {list(RESIDUAL_STATISTICS)} to statistics to chart it",
+                UserWarning,
+                stacklevel=2,
+            )
         rows = [self._measure(estimator, b) for b in batches]
         ref = pd.concat(
-            [r.assign(batch=i, n_samples=len(b)) for i, (r, b) in enumerate(zip(rows, batches))],
-            ignore_index=True)
+            [
+                r.assign(batch=i, n_samples=len(b))
+                for i, (r, b) in enumerate(zip(rows, batches))
+            ],
+            ignore_index=True,
+        )
 
         first = rows[0]
         self.labels_ = tuple(first["label"])
@@ -361,10 +473,32 @@ class ControlProfile:
         self._calibrate_empirical(wide)
         self._decompose(estimator, batches, wide, random_state)
         self.reference_batches_ = ref
-        self.fingerprint_ = _fingerprint(estimator.bands_, statistics,
-                                         getattr(estimator, "classes_", None))
+        self.fingerprint_ = _fingerprint(
+            estimator.bands_, statistics, getattr(estimator, "classes_", None)
+        )
+        if self._residual_model is not None:
+            self.fingerprint_["residual"] = _residual_fingerprint(self._residual_model)
         self._estimator = estimator
         return self
+
+    def _set_residual_model(self, residual_model, estimator=None) -> None:
+        if residual_model is None:
+            raise ValueError(
+                f"statistics {[s for s in self.statistics if s in RESIDUAL_STATISTICS]} "
+                "need a fitted residual_model (a pypasi.NoveltyDetector fitted on the "
+                "estimator's training spectra)"
+            )
+        if getattr(residual_model, "pca_", None) is None:
+            raise ValueError("residual_model is not fitted; call .fit(X_train) first")
+        if estimator is not None:
+            n_needed = 1 + max(int(np.max(b.features)) for b in estimator.bands_)
+            n_have = int(residual_model.pca_.components_.shape[1])
+            if n_have < n_needed:
+                raise ValueError(
+                    f"residual_model was fitted on {n_have} features but the "
+                    f"estimator's bands index up to {n_needed}"
+                )
+        self._residual_model = residual_model
 
     def _calibrate_empirical(self, wide: pd.DataFrame) -> None:
         """Set the threshold from what clean reference batches actually do.
@@ -385,7 +519,7 @@ class ControlProfile:
         n = len(wide)
         if n < 4:
             return
-        alpha = 2.0 * norm.sf(float(self.k))            # target batch-level rate
+        alpha = 2.0 * norm.sf(float(self.k))  # target batch-level rate
         # With n reference batches the finest rate observable is 1/n. Targeting
         # 0.0027 from twenty batches is asking for a quantile the data cannot
         # resolve, and that is the normal case rather than a misuse - so it is
@@ -453,14 +587,19 @@ class ControlProfile:
                 continue
             idx = rng.permutation(n)
             a = self._measure(estimator, b[idx[: n // 2]]).set_index("label")
-            c = self._measure(estimator, b[idx[n // 2:]]).set_index("label")
-            diffs.append({(s_, lab): float(a.loc[lab, s_] - c.loc[lab, s_])
-                          for s_ in self.statistics for lab in self.labels_})
+            c = self._measure(estimator, b[idx[n // 2 :]]).set_index("label")
+            diffs.append(
+                {
+                    (s_, lab): float(a.loc[lab, s_] - c.loc[lab, s_])
+                    for s_ in self.statistics
+                    for lab in self.labels_
+                }
+            )
         if not diffs:
             self.sigma_within_ = np.sqrt(total * self.batch_size_)
             self.sigma_between_ = total * 0.0
             return
-        d2 = pd.DataFrame(diffs).pow(2).mean()          # E[d^2] = 4 s_w^2 / n
+        d2 = pd.DataFrame(diffs).pow(2).mean()  # E[d^2] = 4 s_w^2 / n
         d2.index = pd.MultiIndex.from_tuples(d2.index)
         var_within = (d2 * self.batch_size_ / 4.0).reindex(total.index)
         var_between = (total - var_within / self.batch_size_).clip(lower=0.0)
@@ -471,8 +610,7 @@ class ControlProfile:
         """Standard deviation a batch mean of ``n`` spectra should have."""
         if self.sigma_within_ is None:
             return self.sd_
-        return np.sqrt(self.sigma_within_ ** 2 / max(int(n), 1)
-                       + self.sigma_between_ ** 2)
+        return np.sqrt(self.sigma_within_**2 / max(int(n), 1) + self.sigma_between_**2)
 
     # ---------------------------------------------------------------- check
 
@@ -507,16 +645,23 @@ class ControlProfile:
             if self.k_empirical_ is None:
                 return sidak
             return max(float(self.k_empirical_), sidak)
-        p = 2.0 * norm.sf(float(self.k))            # two-sided per-test rate
+        p = 2.0 * norm.sf(float(self.k))  # two-sided per-test rate
         m = int(self.n_tests)
         if self.multiplicity == "bonferroni":
             p_adj = p / m
-        else:                                       # sidak
+        else:  # sidak
             p_adj = 1.0 - (1.0 - p) ** (1.0 / m)
         return float(norm.isf(p_adj / 2.0))
 
-    def check(self, X, *, name: str = "batch", scale_limits: bool = True,
-              estimator=None) -> ControlReport:
+    def check(
+        self,
+        X,
+        *,
+        name: str = "batch",
+        scale_limits: bool = True,
+        estimator=None,
+        residual_model=None,
+    ) -> ControlReport:
         """Measure one new batch against the profile. No labels required.
 
         Parameters
@@ -529,13 +674,17 @@ class ControlProfile:
             Only needed after :meth:`load`, which cannot carry a fitted model.
         """
         est = self._resolve(estimator)
+        if residual_model is not None:
+            self._set_residual_model(residual_model, est)
         X = np.asarray(X, float)
         if X.ndim != 2:
             raise ValueError(f"X must be 2-D, got shape {X.shape}")
         measured = self._measure(est, X)
 
-        eff = (self.effective_sd(X.shape[0]) if scale_limits else self.sd_)
-        ratio = (eff / self.sd_.replace(0.0, np.nan)).fillna(1.0) if scale_limits else None
+        eff = self.effective_sd(X.shape[0]) if scale_limits else self.sd_
+        ratio = (
+            (eff / self.sd_.replace(0.0, np.nan)).fillna(1.0) if scale_limits else None
+        )
         k_eff = self.k_effective
 
         rows = []
@@ -547,33 +696,48 @@ class ControlProfile:
                 if self.method == "sigma":
                     half = k_eff * sd
                 else:
-                    half = 0.5 * (float(self.ucl_[(stat, lab)])
-                                  - float(self.lcl_[(stat, lab)]))
+                    half = 0.5 * (
+                        float(self.ucl_[(stat, lab)]) - float(self.lcl_[(stat, lab)])
+                    )
                     half *= float(ratio[(stat, lab)]) if ratio is not None else 1.0
                 lcl, ucl = centre - half, centre + half
                 z = (value - centre) / sd if sd > 0 else np.nan
-                rows.append({
-                    "statistic": stat,
-                    "label": lab,
-                    f"{self.axis_name_}_lo": self.lo_[j],
-                    f"{self.axis_name_}_hi": self.hi_[j],
-                    "centre": centre, "sd": sd, "lcl": lcl, "ucl": ucl,
-                    "value": value, "z": z,
-                    "out_of_control": bool(value < lcl or value > ucl),
-                })
+                rows.append(
+                    {
+                        "statistic": stat,
+                        "label": lab,
+                        f"{self.axis_name_}_lo": self.lo_[j],
+                        f"{self.axis_name_}_hi": self.hi_[j],
+                        "centre": centre,
+                        "sd": sd,
+                        "lcl": lcl,
+                        "ucl": ucl,
+                        "value": value,
+                        "z": z,
+                        "out_of_control": bool(value < lcl or value > ucl),
+                    }
+                )
         table = pd.DataFrame(rows)
         if self.laser_nm:
             laser_cm = 1e7 / float(self.laser_nm)
             table["nm_lo"] = 1e7 / (laser_cm - table[f"{self.axis_name_}_lo"])
             table["nm_hi"] = 1e7 / (laser_cm - table[f"{self.axis_name_}_hi"])
-        scale = float(np.nanmean(ratio.to_numpy(dtype=float))) if ratio is not None else 1.0
+        scale = (
+            float(np.nanmean(ratio.to_numpy(dtype=float))) if ratio is not None else 1.0
+        )
         table.attrs["limit_scale"] = scale
         table.attrs["k_effective"] = k_eff
         table.attrs["n_tests"] = self.n_tests
         table.attrs["multiplicity"] = self.multiplicity
-        return ControlReport(name=name, n_samples=int(X.shape[0]), table=table,
-                             k=k_eff, method=self.method, limit_scale=scale,
-                             axis_name=self.axis_name_)
+        return ControlReport(
+            name=name,
+            n_samples=int(X.shape[0]),
+            table=table,
+            k=k_eff,
+            method=self.method,
+            limit_scale=scale,
+            axis_name=self.axis_name_,
+        )
 
     def limits_report(self) -> pd.Series:
         """What threshold this chart is actually using, and how it was reached.
@@ -586,22 +750,28 @@ class ControlProfile:
         """
         from scipy.stats import norm
 
-        return pd.Series({
-            "n_tests": self.n_tests,
-            "n_batches": self.n_batches_,
-            "multiplicity": self.multiplicity,
-            "k_nominal": float(self.k),
-            "k_effective": self.k_effective,
-            "k_empirical": self.k_empirical_,
-            "target_false_alarm_rate": 2.0 * norm.sf(float(self.k)),
-            "resolution": self.resolution_,
-        })
+        return pd.Series(
+            {
+                "n_tests": self.n_tests,
+                "n_batches": self.n_batches_,
+                "multiplicity": self.multiplicity,
+                "k_nominal": float(self.k),
+                "k_effective": self.k_effective,
+                "k_empirical": self.k_empirical_,
+                "target_false_alarm_rate": 2.0 * norm.sf(float(self.k)),
+                "resolution": self.resolution_,
+            }
+        )
 
-    def check_many(self, batches, names=None, *, estimator=None,
-                   scale_limits: bool = True) -> pd.DataFrame:
+    def check_many(
+        self, batches, names=None, *, estimator=None, scale_limits: bool = True
+    ) -> pd.DataFrame:
         """Check a sequence of batches. One row each, for a trend chart."""
-        names = list(names) if names is not None else [f"batch {i + 1}"
-                                                       for i in range(len(batches))]
+        names = (
+            list(names)
+            if names is not None
+            else [f"batch {i + 1}" for i in range(len(batches))]
+        )
         if len(names) != len(batches):
             raise ValueError(f"{len(names)} names for {len(batches)} batches")
         rows = []
@@ -609,11 +779,16 @@ class ControlProfile:
         for nm, b in zip(names, batches):
             rep = self.check(b, name=nm, estimator=estimator, scale_limits=scale_limits)
             z = rep.table[rep.table["statistic"] == primary].set_index("label")["z"]
-            rows.append({"batch": nm, "n_samples": rep.n_samples,
-                         "drift_score": rep.drift_score,
-                         "n_out_of_control": rep.n_out_of_control,
-                         "in_control": rep.is_in_control,
-                         **{f"z_{lab}": float(z.get(lab, np.nan)) for lab in self.labels_}})
+            rows.append(
+                {
+                    "batch": nm,
+                    "n_samples": rep.n_samples,
+                    "drift_score": rep.drift_score,
+                    "n_out_of_control": rep.n_out_of_control,
+                    "in_control": rep.is_in_control,
+                    **{f"z_{lab}": float(z.get(lab, np.nan)) for lab in self.labels_},
+                }
+            )
         frame = pd.DataFrame(rows)
         frame.attrs["statistic"] = primary
         frame.attrs["k"] = self.k
@@ -621,44 +796,71 @@ class ControlProfile:
 
     # ------------------------------------------------------- persistence
 
-    def attach(self, estimator) -> "ControlProfile":
-        """Re-attach a fitted model to a loaded profile, checking it matches."""
-        got = _fingerprint(estimator.bands_, self.statistics,
-                           getattr(estimator, "classes_", None))
+    def attach(self, estimator, residual_model=None) -> ControlProfile:
+        """Re-attach a fitted model (and residual model) to a loaded profile, checking they match."""
+        got = _fingerprint(
+            estimator.bands_, self.statistics, getattr(estimator, "classes_", None)
+        )
         for key in ("labels", "edges", "axis_name", "statistics"):
             if got[key] != self.fingerprint_.get(key):
                 raise ValueError(
                     f"this profile was built for a different configuration: "
                     f"{key} is {self.fingerprint_.get(key)} in the profile but "
-                    f"{got[key]} in the estimator")
+                    f"{got[key]} in the estimator"
+                )
+        if any(s in RESIDUAL_STATISTICS for s in self.statistics):
+            rm = residual_model if residual_model is not None else self._residual_model
+            self._set_residual_model(rm, estimator)
+            want = self.fingerprint_.get("residual")
+            if want is not None and _residual_fingerprint(rm) != want:
+                raise ValueError(
+                    f"this profile was built with residual model {want}, "
+                    f"got {_residual_fingerprint(rm)}"
+                )
         self._estimator = estimator
         return self
 
     def to_dict(self) -> dict:
         if self.centre_ is None:
             raise RuntimeError("profile is not fitted")
+
         def _flat(series):
-            return {f"{s}|{lab}": float(series[(s, lab)])
-                    for s in self.statistics for lab in self.labels_}
+            return {
+                f"{s}|{lab}": float(series[(s, lab)])
+                for s in self.statistics
+                for lab in self.labels_
+            }
+
         return {
             "pypasi_monitor_version": 1,
-            "statistics": list(self.statistics), "k": self.k, "method": self.method,
+            "statistics": list(self.statistics),
+            "k": self.k,
+            "method": self.method,
             "laser_nm": self.laser_nm,
-            "labels": list(self.labels_), "lo": list(self.lo_), "hi": list(self.hi_),
+            "labels": list(self.labels_),
+            "lo": list(self.lo_),
+            "hi": list(self.hi_),
             "axis_name": self.axis_name_,
-            "n_batches": self.n_batches_, "batch_size": self.batch_size_,
+            "n_batches": self.n_batches_,
+            "batch_size": self.batch_size_,
             "fingerprint": self.fingerprint_,
-            "centre": _flat(self.centre_), "sd": _flat(self.sd_),
-            "lcl": _flat(self.lcl_), "ucl": _flat(self.ucl_),
+            "centre": _flat(self.centre_),
+            "sd": _flat(self.sd_),
+            "lcl": _flat(self.lcl_),
+            "ucl": _flat(self.ucl_),
             "sigma_within": _flat(self.sigma_within_),
             "sigma_between": _flat(self.sigma_between_),
             "decompose_variance": bool(self.decompose_variance),
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "ControlProfile":
-        self = cls(statistics=tuple(d["statistics"]), k=float(d["k"]),
-                   method=d["method"], laser_nm=d.get("laser_nm"))
+    def from_dict(cls, d: dict) -> ControlProfile:
+        self = cls(
+            statistics=tuple(d["statistics"]),
+            k=float(d["k"]),
+            method=d["method"],
+            laser_nm=d.get("laser_nm"),
+        )
         self.labels_ = tuple(d["labels"])
         self.lo_ = tuple(float(v) for v in d["lo"])
         self.hi_ = tuple(float(v) for v in d["hi"])
@@ -667,14 +869,18 @@ class ControlProfile:
         self.batch_size_ = float(d["batch_size"])
         self.fingerprint_ = d["fingerprint"]
         index = pd.MultiIndex.from_tuples(
-            [(s, lab) for s in self.statistics for lab in self.labels_])
+            [(s, lab) for s in self.statistics for lab in self.labels_]
+        )
         self.decompose_variance = bool(d.get("decompose_variance", True))
         for name in ("centre", "sd", "lcl", "ucl", "sigma_within", "sigma_between"):
             if name not in d:
                 continue
             flat = d[name]
-            setattr(self, f"{name}_", pd.Series(
-                [flat[f"{s}|{lab}"] for s, lab in index], index=index))
+            setattr(
+                self,
+                f"{name}_",
+                pd.Series([flat[f"{s}|{lab}"] for s, lab in index], index=index),
+            )
         return self
 
     def save(self, path) -> str:
@@ -682,9 +888,9 @@ class ControlProfile:
         return str(path)
 
     @classmethod
-    def load(cls, path, estimator=None) -> "ControlProfile":
+    def load(cls, path, estimator=None, residual_model=None) -> ControlProfile:
         self = cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
-        return self.attach(estimator) if estimator is not None else self
+        return self.attach(estimator, residual_model) if estimator is not None else self
 
     # -------------------------------------------------------------- tables
 
@@ -695,13 +901,18 @@ class ControlProfile:
         rows = []
         for stat in self.statistics:
             for j, lab in enumerate(self.labels_):
-                rows.append({"statistic": stat, "label": lab,
-                             f"{self.axis_name_}_lo": self.lo_[j],
-                             f"{self.axis_name_}_hi": self.hi_[j],
-                             "centre": float(self.centre_[(stat, lab)]),
-                             "sd": float(self.sd_[(stat, lab)]),
-                             "lcl": float(self.lcl_[(stat, lab)]),
-                             "ucl": float(self.ucl_[(stat, lab)])})
+                rows.append(
+                    {
+                        "statistic": stat,
+                        "label": lab,
+                        f"{self.axis_name_}_lo": self.lo_[j],
+                        f"{self.axis_name_}_hi": self.hi_[j],
+                        "centre": float(self.centre_[(stat, lab)]),
+                        "sd": float(self.sd_[(stat, lab)]),
+                        "lcl": float(self.lcl_[(stat, lab)]),
+                        "ucl": float(self.ucl_[(stat, lab)]),
+                    }
+                )
         return pd.DataFrame(rows)
 
     # ------------------------------------------------------------ internal
@@ -712,21 +923,49 @@ class ControlProfile:
             raise RuntimeError(
                 "no fitted estimator attached. A profile restored with load() "
                 "carries only the limits; call profile.attach(clf) or pass "
-                "estimator= to check().")
+                "estimator= to check()."
+            )
         return est
 
     def _measure(self, estimator, X) -> pd.DataFrame:
-        table = estimator.audit(np.asarray(X, float)).conflict_table()
+        X = np.asarray(X, float)
+        model_stats = [s for s in self.statistics if s not in RESIDUAL_STATISTICS]
+        if model_stats:
+            table = estimator.audit(X).conflict_table()
+        else:  # residual-only chart: no negotiation needed
+            bands = estimator.bands_
+            table = pd.DataFrame(
+                {
+                    "band": [b.index for b in bands],
+                    "label": list(bands.labels),
+                    f"{bands.axis_name}_lo": [b.lo for b in bands],
+                    f"{bands.axis_name}_hi": [b.hi for b in bands],
+                    "n_features": [b.n_features for b in bands],
+                }
+            )
+        if any(s in RESIDUAL_STATISTICS for s in self.statistics):
+            if self._residual_model is None:
+                raise RuntimeError(
+                    "this profile charts residual statistics; pass "
+                    "residual_model= to attach(), load() or check()"
+                )
+            table = table.assign(
+                **_residual_stats(self._residual_model, estimator.bands_, X)
+            )
         missing = [s for s in self.statistics if s not in table.columns]
         if missing:
-            raise ValueError(f"the audit does not report {missing}; "
-                             f"available: {sorted(table.columns)}")
+            raise ValueError(
+                f"the audit does not report {missing}; "
+                f"available: {sorted(table.columns)}"
+            )
         return table
 
     def __repr__(self) -> str:  # pragma: no cover - cosmetic
         if self.centre_ is None:
             return "ControlProfile(unfitted)"
-        return (f"ControlProfile({len(self.labels_)} bands, "
-                f"{len(self.statistics)} statistics, {self.n_batches_} reference "
-                f"batches of ~{self.batch_size_:.0f}, {self.method} limits at "
-                f"{self.k:g} sigma)")
+        return (
+            f"ControlProfile({len(self.labels_)} bands, "
+            f"{len(self.statistics)} statistics, {self.n_batches_} reference "
+            f"batches of ~{self.batch_size_:.0f}, {self.method} limits at "
+            f"{self.k:g} sigma)"
+        )

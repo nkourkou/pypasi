@@ -23,11 +23,13 @@ limits**, with no labels at all.
 ## Install
 
 ```bash
-pip install -e .            # from a checkout
-pip install -e ".[viz]"     # adds matplotlib helpers
+pip install "pypasi[viz] @ git+https://github.com/nkourkou/pypasi@v0.5.5"   # a tagged release
+pip install -e ".[viz]"                                                     # from a checkout
 ```
 
-Requires Python 3.10+, NumPy, SciPy, pandas and scikit-learn.
+Drop `[viz]` if you do not need the figures (it only adds matplotlib). Requires
+Python 3.11–3.14, NumPy, SciPy, pandas and scikit-learn. Check with
+`python -c "import pypasi; print(pypasi.__version__)"`.
 
 ## Time (seconds)
 
@@ -151,6 +153,10 @@ and transfers to any host; the relationship between conflict and a *wrong host
 prediction* does not, so `ext.validate(X, y)` measures it on labelled data
 instead of assuming it.
 
+> **Which configuration?** See [`docs/parameter_selection_guide.md`](docs/parameter_selection_guide.md) for
+> measured defaults: scaling, number and width of bands, topology and regime, and how
+> to check them on your own data.
+
 ### Interaction topology
 
 The published method couples each band to its immediate neighbours. That cannot
@@ -264,6 +270,14 @@ Modes: `noise`, `spike`, `silence` (also freezes the band), `swap` (gives a band
 another class's evidence). All corrupt the same number of bands at a matched
 fraction, so modes are directly comparable.
 
+### Stress-testing on your own spectra
+
+`pypasi.degrade` plants known faults in the *spectra* (axis shift, resolution loss,
+throughput dip, short exposure, local contamination, cosmic rays, fluorescence and
+intensity loss) and `degrade.stress_test` reports what each audit score sees. See
+[`docs/degradation.md`](docs/degradation.md). Faults that act identically on every
+channel are invisible to band disagreement; check them with `pypasi.noise_level`.
+
 ## Monitoring a new batch, without labels
 
 The question a laboratory actually has when spectra arrive: *has anything
@@ -296,7 +310,7 @@ profile.save("qc.json")                        # limits travel; re-attach a mode
 ControlProfile.load("qc.json", estimator=clf)
 ```
 
-** `NoveltyDetector` ** asks whether a *spectrum* is
+`NoveltyDetector` asks whether a *spectrum* is
 unlike the training data, per sample, in input space. This asks whether a *batch*
 is disturbing the fitted model, answers per band, and hands back an interval in
 cm⁻¹ you can take to the instrument. Run both.
@@ -428,6 +442,27 @@ Measured on 7 bands, 5 classes, 30 iterations; your numbers will differ, the
 shape will not. Cost per signal is roughly flat for the loop and falls for the
 batched engine, which is what makes cohort-scale auditing practical.
 
+
+### Notebooks behind the SoftwareX paper
+
+All need the Ho et al. `.npy` files in `Bacteria/` beside the notebook, and each ends by
+checking its results against the values quoted in the paper or the documentation.
+
+| Notebook | Reproduces | Runtime (2 cores) |
+| --- | --- | --- |
+| `examples/softwarex_examples.ipynb` | every number and figure of the manuscript (30 checks) | ~1 min |
+| `benchmarks/parameter_guide.ipynb` | `docs/parameter_selection_guide.md`, manuscript §2.3 and the five-split spread | ~45 min |
+| `benchmarks/instrument_change.ipynb` | the 2018 → 2019 instrument change, manuscript §3.5 | ~2 min |
+| `benchmarks/outlier_comparison.ipynb` | conflict against PCA T², Q, isolation forest and LOF, manuscript §3.3 | ~8 min |
+| `benchmarks/method_paper_comparison.ipynb` | the configuration of the method paper against the pypasi defaults, manuscript §2 | ~10 min |
+| `benchmarks/bench_runtime.ipynb` | runtime and memory, manuscript §2.2 (also runs without the data) | ~1 min |
+| `benchmarks/short_exposure.ipynb` | the short-exposure analysis (manuscript §3.2) and the three further `degrade` families | ~2 min |
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs the test suite on Python 3.11–3.14 on Linux plus one
+macOS and one Windows job, smoke-tests the command line, lints with `ruff`, and
+builds and checks the distribution.
 
 ## Method
 

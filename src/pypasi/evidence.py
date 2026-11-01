@@ -63,12 +63,12 @@ from dataclasses import dataclass
 import numpy as np
 
 __all__ = [
-    "EvidenceSpec",
     "EVIDENCE_KINDS",
-    "to_evidence",
-    "evidence_kind",
+    "EvidenceSpec",
     "TemperatureCalibrator",
     "UncalibratedEvidenceWarning",
+    "evidence_kind",
+    "to_evidence",
 ]
 
 _EPS = 1e-12
@@ -86,10 +86,10 @@ _EPS = 1e-12
 #: either of them and reality. Use ``calibration="always"`` to repair the second
 #: for an estimator that already satisfies the first.
 EVIDENCE_KINDS = (
-    "calibrated_log_proba",   # temperature or per-band calibration was fitted
-    "log_proba",              # log of the estimator's own predict_proba
-    "exact_logit",            # softmax reproduces predict_proba; not calibrated
-    "uncalibrated_score",     # decision_function with no probabilistic meaning
+    "calibrated_log_proba",  # temperature or per-band calibration was fitted
+    "log_proba",  # log of the estimator's own predict_proba
+    "exact_logit",  # softmax reproduces predict_proba; not calibrated
+    "uncalibrated_score",  # decision_function with no probabilistic meaning
 )
 
 
@@ -101,27 +101,37 @@ class UncalibratedEvidenceWarning(UserWarning):
 #: posterior up to an additive constant (multiclass), so that ``softmax`` of it
 #: reproduces ``predict_proba``. Matched by class name to avoid importing
 #: optional dependencies.
-_EXACT_LOGIT_TYPES = frozenset({
-    "LogisticRegression",
-    "LogisticRegressionCV",
-    "SGDClassifier",                 # only with loss='log_loss'; checked below
-    "LinearDiscriminantAnalysis",
-    "QuadraticDiscriminantAnalysis",
-    "PCALDA",                        # pypasi: delegates to LinearDiscriminantAnalysis
-})
+_EXACT_LOGIT_TYPES = frozenset(
+    {
+        "LogisticRegression",
+        "LogisticRegressionCV",
+        "SGDClassifier",  # only with loss='log_loss'; checked below
+        "LinearDiscriminantAnalysis",
+        "QuadraticDiscriminantAnalysis",
+        "PCALDA",  # pypasi: delegates to LinearDiscriminantAnalysis
+    }
+)
 
 #: Estimator classes whose ``decision_function`` is explicitly NOT a log-odds.
-_KNOWN_SCORE_TYPES = frozenset({
-    "LinearSVC", "SVC", "NuSVC", "RidgeClassifier", "RidgeClassifierCV",
-    "Perceptron", "PassiveAggressiveClassifier", "PLSDA",
-})
+_KNOWN_SCORE_TYPES = frozenset(
+    {
+        "LinearSVC",
+        "SVC",
+        "NuSVC",
+        "RidgeClassifier",
+        "RidgeClassifierCV",
+        "Perceptron",
+        "PassiveAggressiveClassifier",
+        "PLSDA",
+    }
+)
 
 
 def _terminal(estimator):
     """The estimator that actually produces the scores, unwrapping pipelines."""
     step = estimator
     for _ in range(8):
-        if hasattr(step, "steps"):              # sklearn Pipeline
+        if hasattr(step, "steps"):  # sklearn Pipeline
             step = step.steps[-1][1]
         elif hasattr(step, "best_estimator_"):  # fitted search object
             step = step.best_estimator_
@@ -180,7 +190,9 @@ class EvidenceSpec:
             f"so {context} is not comparable across estimators. Fit a "
             f"TemperatureCalibrator on held-out data, or pass "
             f"calibration='temperature' to BandNegotiationClassifier.",
-            UncalibratedEvidenceWarning, stacklevel=3)
+            UncalibratedEvidenceWarning,
+            stacklevel=3,
+        )
 
     def __str__(self) -> str:  # pragma: no cover - cosmetic
         t = "" if self.temperature == 1.0 else f", T={self.temperature:.3g}"
@@ -221,7 +233,8 @@ def evidence_kind(estimator) -> tuple[str, str]:
 
     raise TypeError(
         f"{name} exposes neither decision_function nor predict_proba, so it "
-        "cannot provide class evidence")
+        "cannot provide class evidence"
+    )
 
 
 def _raw_evidence(estimator, X: np.ndarray, source: str) -> np.ndarray:
@@ -233,7 +246,9 @@ def _raw_evidence(estimator, X: np.ndarray, source: str) -> np.ndarray:
             return np.column_stack([np.zeros_like(d), d])
         if d.ndim == 2:
             return d
-        raise ValueError(f"decision_function returned shape {d.shape}; expected 1-D or 2-D")
+        raise ValueError(
+            f"decision_function returned shape {d.shape}; expected 1-D or 2-D"
+        )
 
     p = np.asarray(estimator.predict_proba(X), dtype=float)
     if p.ndim != 2:
@@ -246,7 +261,7 @@ def to_evidence(
     X: np.ndarray,
     n_classes: int | None = None,
     *,
-    calibrator: "TemperatureCalibrator | None" = None,
+    calibrator: TemperatureCalibrator | None = None,
     centre: bool = True,
 ) -> tuple[np.ndarray, EvidenceSpec]:
     """Extract class evidence together with a description of what it is.
@@ -282,13 +297,15 @@ def to_evidence(
     if not np.all(np.isfinite(L)):
         raise ValueError(
             f"{type(estimator).__name__} produced non-finite evidence; check the "
-            "band for constant or degenerate features")
+            "band for constant or degenerate features"
+        )
     if n_classes is not None and L.shape[1] != n_classes:
         raise ValueError(
             f"{type(estimator).__name__} produced {L.shape[1]} class scores but "
             f"{n_classes} classes were expected. A band-level model that never "
             "saw every class cannot contribute comparable evidence; consider "
-            "wider bands or stratified folds.")
+            "wider bands or stratified folds."
+        )
 
     if centre:
         L = L - L.mean(axis=-1, keepdims=True)
@@ -376,10 +393,12 @@ class TemperatureCalibrator:
 
         res = minimize_scalar(
             lambda lt: self._nll(L, y_idx, float(np.exp(lt))),
-            bounds=self.bounds, method="bounded")
+            bounds=self.bounds,
+            method="bounded",
+        )
         return float(np.exp(res.x))
 
-    def fit(self, band_logits: np.ndarray, y_idx) -> "TemperatureCalibrator":
+    def fit(self, band_logits: np.ndarray, y_idx) -> TemperatureCalibrator:
         """Fit on evidence the band models did not see.
 
         Parameters
@@ -400,12 +419,12 @@ class TemperatureCalibrator:
         L = np.asarray(band_logits, dtype=float)
         if L.ndim != 3:
             raise ValueError(
-                f"band_logits must be (n_samples, n_bands, n_classes), got {L.shape}")
+                f"band_logits must be (n_samples, n_bands, n_classes), got {L.shape}"
+            )
         L = L - L.mean(axis=-1, keepdims=True)
         y_idx = np.asarray(y_idx, dtype=int).reshape(-1)
         if y_idx.size != L.shape[0]:
-            raise ValueError(
-                f"y_idx has {y_idx.size} entries for {L.shape[0]} samples")
+            raise ValueError(f"y_idx has {y_idx.size} entries for {L.shape[0]} samples")
         if y_idx.min() < 0 or y_idx.max() >= L.shape[-1]:
             raise ValueError("y_idx must contain class indices, not class labels")
 
@@ -414,11 +433,24 @@ class TemperatureCalibrator:
             self.temperature_ = self._fit_one(L, y_idx)
         else:
             self.temperature_ = np.array(
-                [self._fit_one(L[:, [k], :], y_idx) for k in range(L.shape[1])])
-        self.nll_after_ = self._nll(L, y_idx, 1.0) if self.temperature_ is None else (
-            self._nll(L, y_idx, self.temperature_) if self.mode == "shared"
-            else float(np.mean([self._nll(L[:, [k], :], y_idx, self.temperature_[k])
-                                for k in range(L.shape[1])])))
+                [self._fit_one(L[:, [k], :], y_idx) for k in range(L.shape[1])]
+            )
+        self.nll_after_ = (
+            self._nll(L, y_idx, 1.0)
+            if self.temperature_ is None
+            else (
+                self._nll(L, y_idx, self.temperature_)
+                if self.mode == "shared"
+                else float(
+                    np.mean(
+                        [
+                            self._nll(L[:, [k], :], y_idx, self.temperature_[k])
+                            for k in range(L.shape[1])
+                        ]
+                    )
+                )
+            )
+        )
         return self
 
     def transform(self, logits: np.ndarray) -> np.ndarray:
@@ -436,11 +468,13 @@ class TemperatureCalibrator:
         if L.ndim != 3:
             raise ValueError(
                 "per-band calibration needs the full (n_samples, n_bands, "
-                "n_classes) stack; a single band cannot be identified")
+                "n_classes) stack; a single band cannot be identified"
+            )
         if L.shape[1] != len(self.temperature_):
             raise ValueError(
                 f"calibrator was fitted for {len(self.temperature_)} bands, "
-                f"got {L.shape[1]}")
+                f"got {L.shape[1]}"
+            )
         return L * np.asarray(self.temperature_, float)[None, :, None]
 
     @property
@@ -453,7 +487,12 @@ class TemperatureCalibrator:
     def __repr__(self) -> str:  # pragma: no cover - cosmetic
         if self.temperature_ is None:
             return f"TemperatureCalibrator(mode={self.mode!r}, unfitted)"
-        t = (f"{self.temperature_:.3g}" if self.mode == "shared"
-             else f"{np.min(self.temperature_):.3g}-{np.max(self.temperature_):.3g}")
-        return (f"TemperatureCalibrator(mode={self.mode!r}, T={t}, "
-                f"NLL {self.nll_before_:.3f} -> {self.nll_after_:.3f})")
+        t = (
+            f"{self.temperature_:.3g}"
+            if self.mode == "shared"
+            else f"{np.min(self.temperature_):.3g}-{np.max(self.temperature_):.3g}"
+        )
+        return (
+            f"TemperatureCalibrator(mode={self.mode!r}, T={t}, "
+            f"NLL {self.nll_before_:.3f} -> {self.nll_after_:.3f})"
+        )

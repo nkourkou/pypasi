@@ -17,7 +17,7 @@ import numpy as np
 
 from .divergence import js_divergence, softmax
 from .energy import negotiation_energy
-from .gates import Gate, QuantileGate, resolve_gate
+from .gates import Gate, resolve_gate
 from .geometry import (
     band_decision_geometry,
     decision_geometry,
@@ -28,7 +28,13 @@ from .geometry import (
 from .regimes import Regime, resolve_regime
 from .topology import Topology
 
-__all__ = ["negotiate", "NegotiationResult", "initial_weights", "neighbourhood_consensus", "band_stress"]
+__all__ = [
+    "NegotiationResult",
+    "band_stress",
+    "initial_weights",
+    "negotiate",
+    "neighbourhood_consensus",
+]
 
 _EPS = 1e-12
 
@@ -299,7 +305,9 @@ def negotiate(
         muted = muted & ~fz
 
         L_prop, w_prop = reg.propose(L, consensus, w, muted, fz)
-        e_prop = negotiation_energy(L_prop, L0, w_prop, topo, lam=lam, divergence=divergence)
+        e_prop = negotiation_energy(
+            L_prop, L0, w_prop, topo, lam=lam, divergence=divergence
+        )
 
         accept = e_prop <= energy
         if temperature > 0.0:
