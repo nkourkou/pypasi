@@ -469,7 +469,9 @@ builds and checks the distribution.
 ## Method
 
 The negotiation, the regimes and the Decision Geometry descriptors follow
-N. Kourkoumelis, Process-aware inference of biomedical Raman spectra classification, Chemometrics and Intelligent Laboratory Systems 279 (2026) 105914. https://doi.org/10.1016/j.chemolab.2026.105914. This package generalises that method beyond Raman spectroscopy and beyond nearest-neighbour coupling.
+N. Kourkoumelis, Process-aware inference of biomedical Raman spectra classification, Chemometrics and Intelligent Laboratory Systems 279 (2026) 105914. https://doi.org/10.1016/j.chemolab.2026.105914. 
+
+pypasi generalises that method and accepts any scikit-learn classifier with calibrated evidence, arbitrary partitions and interaction graphs, audits an existing model without altering it, monitors batches with band-resolved control charts, and simulates spectral faults for stress testing.
 
 ## Licence
 
