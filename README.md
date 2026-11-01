@@ -18,6 +18,8 @@ long after the data stops looking like what it was trained on, and accuracy need
 process variables and reports **which wavenumber interval left its control
 limits**, with no labels at all.
 
+Submitted to SoftwareX
+
 ---
 
 ## Install
