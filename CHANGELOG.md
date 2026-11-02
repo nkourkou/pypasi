@@ -2,52 +2,32 @@
 
 ## 0.5.5 (unreleased: SoftwareX revision)
 
-### Parameter selection guide (Reviewer 1, comment 1)
-
 - **New** `BandNegotiationClassifier.band_accuracy(X, y)`: each band's own accuracy against the majority-class rate, with a binomial test. The audit needs class information in every band, and this is the check.
 
 - **New** `docs/parameter_selection_guide.md`: a default and the conditions for departing from it, for scaling, band estimator, band count, width, content and placement, topology and regime, summarised in Section 2.3 of the paper. It is measured on the Ho et al. cohort over five patient-disjoint splits, with a coarser-sampling test for spectral resolution.
 - **New** `benchmarks/parameter_guide.ipynb`, which produces the guide's tables and checks them against the values quoted.
 
-### Spectral degradation simulator (Reviewer 1, comment 4)
-
 - **New** `pypasi.degrade`: eight fault families that act on spectra rather than on band evidence. Five are the families of the paper (axis shift, resolution loss, throughput dip, short exposure, local contamination) and three are new (cosmic rays, fluorescence, intensity loss). It also provides `plant()`, which returns the ground truth for every spectrum, and `stress_test()`, which reports conflict, 1 − confidence and novelty AUROCs and the paired accuracy cost per family. A new fault is one function wrapped in `Family`. With the default families and seed, `plant()` reproduces the defects of the SoftwareX notebook bit for bit.
 - **New** `docs/degradation.md`, and `benchmarks/short_exposure.ipynb` for its section on what the audit cannot see.
 - **Changed** `examples/softwarex_examples.ipynb` (the paper's notebook, now in the release) plants its defects with `pypasi.degrade`. It also reports the accuracy cost of the defects on the same spectra before and after them (4.4 points; the submitted manuscript compared two different halves of the cohort, 3.6) and checks 28 manuscript numbers.
 
-### pypasi against the configuration of the method paper (Reviewer 2, comment 5)
-
 - **New** `benchmarks/method_paper_comparison.ipynb`: the configuration of Kourkoumelis (2026) (L2 normalization with standardization, logistic-regression band models, chain topology, eREDG), reproduced in pypasi and changed one component at a time to the defaults. Conflict rises from 0.54 to 0.76 on the planted defects and from 0.60 to 0.75 on the real 2018 → 2019 change, in all five splits.
-
-### Conflict against conventional outlier detection (Reviewer 2, comment 3)
 
 - **New** `benchmarks/outlier_comparison.ipynb`: conflict against PCA Hotelling's T², the Q residual, an isolation forest and a local outlier factor, on the planted defects and on the real 2018 → 2019 change, over five splits. Adding conflict to T² + Q + confidence raises the held-out AUROC by 12.9 points on the planted defects and by 4.9 points on the real change, in all five splits.
 
-### A real instrument change (Reviewer 1, comment 4)
-
 - **New** `benchmarks/instrument_change.ipynb`: the audit on the documented 2018 → 2019 change in the Ho et al. instrument. Conflict separates the 2019 spectra from held-out 2018 spectra (AUROC 0.75 ± 0.05 per spectrum and 0.86 per batch of 100, over five splits); confidence stays at chance (0.50).
 
-### Acquisition-level noise check (Reviewer 1, comment 3; Reviewer 2, comment 4)
-
 - **New** `pypasi.quality.noise_level` (robust spread of the Savitzky–Golay residual) and `noise_limit` (a limit learned from clean spectra). They cover faults that act identically on every channel, which the band audit cannot see by construction.
-
-### Reproducibility, Python versions and optional plotting (Reviewer 2, comments 7–9)
 
 - **Changed** `ControlProfile.fit(random_state=0)` by default, so the same reference gives the same limits on every run (it was `None`). The paper's numbers are unchanged: its notebooks always passed a seed.
 - **New** CI runs Python 3.11–3.14 on Linux and 3.12 on macOS and Windows, and `pyproject.toml` lists the supported versions. Python 3.10 reached end of life in October 2026 and is no longer supported (the suite still passes on it).
 - **Changed** `pypasi.viz` raises an `ImportError` that explains how to install the optional matplotlib dependency (`pip install 'pypasi[viz]'`). Nothing else needs matplotlib; the CLI skips figures without it.
-
-### Continuous integration
-
-- The lint job failed on 0.5.4: ruff was installed unpinned, and current ruff releases enable a wider default rule set. The rules are now fixed in `pyproject.toml` (`E4`, `E7`, `E9`, `F`, `W`) and ruff is pinned in CI. The four remaining findings (two lambda assignments, two ambiguous names) are fixed, and the code base has been formatted with `ruff format`. Behaviour is unchanged.
 
 ### Packaging
 
 - `requires-python = ">=3.11"`, matching the tested range (3.11–3.14). The classifiers are all valid PyPI classifiers, so the package can be uploaded.
 - The description names Raman spectra explicitly. The README installs from a tagged release.
 - Build outputs (`build/`, `dist/`) and the data folder (`Bacteria/`) are no longer tracked, and a benchmark script that belongs to a later study has been removed.
-
-### Runtime benchmark (Reviewer 1, comment 2)
 
 - **New** `benchmarks/bench_runtime.ipynb`: the wall time and peak memory of every user-facing step on 1,000 spectra, against the same base estimator fitted once on the full spectrum. It runs on the Ho et al. data (`DATA_DIR`) or on synthetic data of any width (`DATA_DIR = None`).
 
