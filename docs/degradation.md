@@ -1,6 +1,6 @@
 # Stress-testing the audit on your own data
 
-`pypasi.degrade` plants known faults in spectra, so that you can measure what the audit detects on *your* instrument and samples before relying on it. It is the simulator used in the SoftwareX paper (Section 3.1). With the default families and the same seed, it reproduces the paper's defects bit for bit.
+`pypasi.degrade` plants known faults in spectra, so that you can measure what the audit detects on *your* instrument and samples before relying on it. With the default families and the same seed, it reproduces the SoftwareX paper's defects bit for bit.
 
 ## Recipe
 
