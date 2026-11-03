@@ -20,7 +20,7 @@ The figures are the mean ± sd over five patient-disjoint splits (`SPLIT_REPEAT 
 | Band estimator | PLS-DA, 10 components | Keep any classifier for prediction and audit it with `ExternalAudit` | PLS-DA gave the strongest conflict: 0.777 against 0.706 for linear SVM (paper, §3.4) |
 | Number and width of bands | About 7 equal-width bands (199 cm⁻¹ here) | Narrower bands (down to about 70 cm⁻¹) to localise narrow changes, at a cost of 2–3 accuracy points; never fewer than 5 | localisation hit 0.65 at 7 bands, 0.82 at 10–14; 3 bands near chance (§2) |
 | Band content | Every band classifies above chance on its own (`band_accuracy`) | Merge or drop bands that are at chance | each band 0.52–0.86 against a chance rate of 0.20 (§2) |
-| Channels per band | At least about 20 | On coarser instruments, keep the band width in cm⁻¹; if a band then holds fewer than about 20 channels, use fewer bands | local defect 0.92 → 0.87 at 8× coarser sampling (§2) |
+| Points per band | At least about 20 | On coarser instruments, keep the band width in cm⁻¹; if a band then holds fewer than about 20 points, use fewer bands | local defect 0.92 → 0.87 at 8× coarser sampling (§2) |
 | Band placement | Equal width | Peak-informed when a strong peak falls on a boundary | no gain in detection: 0.753 against 0.777 (§3) |
 | Topology | `"complete"` | `"knn"` above about 14 bands, to cut the cost; avoid `"chain"` | chain 0.72 against 0.76; audit time 5.1 s against 1.3 s per 1,000 spectra at 28 bands (§4) |
 | Regime | `"H1"` (keeps the overruled band's evidence) | Rarely; plain, H1 and H2 detect equally | 0.772–0.778 (§4) |
