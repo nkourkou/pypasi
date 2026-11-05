@@ -1,6 +1,6 @@
 # Stress-testing the audit on your own data
 
-`pypasi.degrade` plants known faults in spectra, so that you can measure what the audit detects on *your* instrument and samples before relying on it. With the default families and the same seed, it reproduces the SoftwareX paper's defects bit for bit.
+`pypasi.degrade` plants known faults in spectra, so that you can measure what the audit detects on *your* instrument and samples before relying on it.
 
 ## Recipe
 
@@ -48,7 +48,7 @@ Severity `s` is drawn uniformly from `severity` (default 0.3–1.0). The magnitu
 
 Each family is a small function, and the transforms (`axis_shift`, `resolution_loss`, …) can be called on their own. Choose families with `families=[...]`.
 
-**Add your own fault** by writing one function:
+**Add your own fault** using this function:
 
 ```python
 def etaloning(x, axis, s, rng, edges):
@@ -58,7 +58,7 @@ fam = degrade.Family("etaloning", "global", etaloning, "5 s % fringes")
 degrade.stress_test(triage, X, y, axis, families=[fam, "local contamination"], preprocess=snv)
 ```
 
-## What the audit can and cannot see
+## What the audit can see
 
 Measured on the Ho et al. cohort (split 0):
 
