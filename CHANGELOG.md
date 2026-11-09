@@ -98,7 +98,7 @@ the exact decomposition is not the approximation that was being computed before.
 Conflict, confidence, band stress and the control-chart localisation are
 untouched: they never go through this PCA.
 
-## 0.5.2
+## 0.5.2 (obsolete)
 
 ### Policy calibration and orientation can come from different data
 
