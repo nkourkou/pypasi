@@ -5,20 +5,22 @@ among band-level models, then audit *how* the decision was reached: which region
 of the signal disagreed, how long they held out, and what the raw data looks like
 there.
 
-Conventional classifiers report a label and a probability. Neither tells you
-whether the prediction came from agreement across the signal or from the forced
-reconciliation of contradictory regions. **pypasi** partitions a signal into
-contiguous bands, gives each its own classifier, and lets those band agents
-negotiate over an interaction graph. The trajectory they take is measurable, and
-it is attributable back to specific regions of the spectrum.
-
-The most direct use is monitoring. A fitted model keeps producing predictions
+A fitted model keeps producing predictions
 long after the data stops looking like what it was trained on, and accuracy needs labels you may not have when a new batch arrives. 
 **pypasi** charts the band-level quantities the negotiation already produces as
 process variables and reports **which wavenumber interval left its control
 limits**, with no labels at all.
 
-Submitted to SoftwareX
+
+## Method
+
+The negotiation, the regimes and the Decision Geometry descriptors follow
+N. Kourkoumelis, Process-aware inference of biomedical Raman spectra classification, Chemometrics and Intelligent Laboratory Systems 279 (2026) 105914. https://doi.org/10.1016/j.chemolab.2026.105914. 
+
+## Implementation
+
+pypasi generalises that method and accepts any scikit-learn classifier with calibrated evidence, arbitrary partitions and interaction graphs, audits an existing model without altering it, monitors batches with band-resolved control charts, and simulates spectral faults for stress testing.
+N. Kourkoumelis, pypasi: A python library for band-resolved classifier auditing and acquisition quality control in biomedical Raman spectroscopy, SoftwareX 36 (2026) 103230. https://doi.org/10.1016/j.softx.2026.103230.
 
 ---
 
@@ -105,7 +107,7 @@ well on normalised spectra.
 wavenumber, the conventional measure of where a spectral model finds its
 information, with 1.0 as the usual cut-off.
 
-### Class evidence, and what scale it is on
+### Class evidence
 
 Band agents exchange logits, and getting those out of an arbitrary estimator is
 less obvious than it looks. Random forests and naive Bayes have no
@@ -113,16 +115,6 @@ less obvious than it looks. Random forests and naive Bayes have no
 `decision_function` returns one number, and the natural-looking `[-d, +d]`
 *doubles* the scale of a proper two-class logit vector, inflating every
 divergence and breaking any threshold tuned elsewhere; `pypasi` uses `[0, d]`.
-
-**That last construction reproduces the model's own probabilities exactly for a
-logistic score, and not otherwise.** It is exact for binary and multinomial
-logistic regression and for LDA, whose discriminant is a log posterior up to a
-constant. It is *not* exact for an SVM margin, which lives in scaled-feature
-units, nor for a PLS-DA response, which is a regression output onto one-hot
-targets. For those, the softmax has an arbitrary temperature - and since
-confidence weights, stress, the gate threshold and DG are all computed from that
-softmax, two estimators on two scales produce conflict numbers that cannot be
-compared.
 
 ```python
 from pypasi import BandNegotiationClassifier, PLSDA
@@ -133,7 +125,7 @@ print(clf.evidence_report)
 #          PLSDA decision_function  calibrated_log_proba        5.657       0.739      0.348
 ```
 
-### Auditing a classifier you already have
+### Auditing a classifier (known)
 
 Replacing a validated workflow is a high price for a diagnostic. `audit_external`
 leaves the laboratory's own model in charge and fits a band ensemble alongside
@@ -280,7 +272,7 @@ intensity loss) and `degrade.stress_test` reports what each audit score sees. Se
 [`docs/degradation.md`](docs/degradation.md). Faults that act identically on every
 channel are invisible to band disagreement; check them with `pypasi.noise_level`.
 
-## Monitoring a new batch, without labels
+## Monitoring a new batch (without labels)
 
 The question a laboratory actually has when spectra arrive: *has anything
 changed, and where?*
@@ -324,7 +316,7 @@ reason to act.
 
 ## Quality-control triage
 
-The practical use: flag predictions a clinician should not act on unreviewed.
+The practical use: flag predictions.
 
 ```python
 from pypasi import Triage
@@ -340,7 +332,7 @@ and chemometrics has measured it for decades with the squared prediction error
 and Hotelling's T² of a PCA model. Such a spectrum should be re-acquired; the
 model was never entitled to an opinion about it.
 
-**Internal disagreement** is different. The spectrum sits comfortably inside the
+**Internal disagreement** The spectrum sits comfortably inside the
 training distribution, yet its bands argue for different classes. This is a real
 specimen that genuinely looks like two things at once - the case for a second
 assay or an expert eye, not for re-measurement.
@@ -358,7 +350,7 @@ Crossing the two gives four actions rather than one flag:
 distribution, so the referral rate is a number you choose rather than one you
 discover - which is the knob a clinic actually has.
 
-### Proving it is not just outlier detection
+### Proving evidence
 
 ```python
 evidence = tri.evaluate(X_eval, y_eval)
@@ -421,57 +413,6 @@ classifiers pass every check. The negotiation classifier passes every check when
 because a stochastic accept/reject step genuinely is not subset-invariant. Both
 facts are asserted by tests rather than described.
 
-## Benchmarks
-
-```bash
-python benchmarks/bench_vectorisation.py --out bench.csv --figure bench.png
-```
-
-The samples in a negotiation are independent, so the obvious implementation is a
-loop over signals. `pypasi` instead advances the whole cohort through each
-iteration at once. The benchmark measures the difference against a deliberately
-naive reference, and refuses to report a single timing until the two agree to
-floating point:
-
-| signals | per-sample loop | batched | speedup |
-| ---: | ---: | ---: | ---: |
-| 100 | 0.79 s | 0.034 s | 23x |
-| 500 | 3.99 s | 0.130 s | 31x |
-| 1000 | 8.07 s | 0.236 s | 34x |
-| 2500 | 20.27 s | 0.641 s | 32x |
-
-Measured on 7 bands, 5 classes, 30 iterations; your numbers will differ, the
-shape will not. Cost per signal is roughly flat for the loop and falls for the
-batched engine, which is what makes cohort-scale auditing practical.
-
-
-### Notebooks behind the SoftwareX paper
-
-All need the Ho et al. `.npy` files in `Bacteria/` beside the notebook, and each ends by
-checking its results against the values quoted in the paper or the documentation.
-
-| Notebook | Reproduces | Runtime (2 cores) |
-| --- | --- | --- |
-| `examples/softwarex_examples.ipynb` | every number and figure of the manuscript (30 checks) | ~1 min |
-| `benchmarks/parameter_guide.ipynb` | `docs/parameter_selection_guide.md`, manuscript §2.3 and the five-split spread | ~45 min |
-| `benchmarks/instrument_change.ipynb` | the 2018 → 2019 instrument change, manuscript §3.5 | ~2 min |
-| `benchmarks/outlier_comparison.ipynb` | conflict against PCA T², Q, isolation forest and LOF, manuscript §3.3 | ~8 min |
-| `benchmarks/method_paper_comparison.ipynb` | the configuration of the method paper against the pypasi defaults, manuscript §2 | ~10 min |
-| `benchmarks/bench_runtime.ipynb` | runtime and memory, manuscript §2.2 (also runs without the data) | ~1 min |
-| `benchmarks/short_exposure.ipynb` | the short-exposure analysis (manuscript §3.2) and the three further `degrade` families | ~2 min |
-
-## Continuous integration
-
-`.github/workflows/ci.yml` runs the test suite on Python 3.11–3.14 on Linux plus one
-macOS and one Windows job, smoke-tests the command line, lints with `ruff`, and
-builds and checks the distribution.
-
-## Method
-
-The negotiation, the regimes and the Decision Geometry descriptors follow
-N. Kourkoumelis, Process-aware inference of biomedical Raman spectra classification, Chemometrics and Intelligent Laboratory Systems 279 (2026) 105914. https://doi.org/10.1016/j.chemolab.2026.105914. 
-
-pypasi generalises that method and accepts any scikit-learn classifier with calibrated evidence, arbitrary partitions and interaction graphs, audits an existing model without altering it, monitors batches with band-resolved control charts, and simulates spectral faults for stress testing.
 
 ## Licence
 
